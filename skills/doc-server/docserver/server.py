@@ -1,11 +1,14 @@
 import json
 import socket
+import subprocess
+import sys
+import time
 import urllib.request
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import sync
+from . import state, sync
 
 HEALTH_PATH = "/__doc_server_health__"
 HEALTH_MARKER = {"doc_server": True}
@@ -76,3 +79,24 @@ def make_server(home: Path, port: int) -> ThreadingHTTPServer:
 
 def run_server_forever(home: Path, port: int) -> None:
     make_server(home, port).serve_forever()
+
+
+def ensure_server(home: Path, preferred: int):
+    port, action = resolve_port(preferred)
+    if action == "reuse":
+        state.set_remembered_port(port)
+        return port, False
+
+    serve_py = Path(__file__).resolve().parent.parent / "serve.py"
+    subprocess.Popen(
+        [sys.executable, str(serve_py), "--daemon", "--port", str(port)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    for _ in range(100):
+        if probe_health(port):
+            break
+        time.sleep(0.05)
+    state.set_remembered_port(port)
+    return port, True
