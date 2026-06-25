@@ -27,6 +27,7 @@ def _git(args, cwd):
 
 
 def resolve_identity(cwd: str) -> Identity:
+    # realpath (not abspath) so macOS symlinked paths (/var -> /private/var) match git's output
     cwd = os.path.realpath(cwd)
     toplevel = _git(["rev-parse", "--show-toplevel"], cwd)
     if not toplevel:
@@ -34,7 +35,7 @@ def resolve_identity(cwd: str) -> Identity:
 
     toplevel = os.path.realpath(toplevel)
     common = _git(["rev-parse", "--git-common-dir"], cwd)
-    common = os.path.realpath(os.path.join(cwd, common)) if common else os.path.join(toplevel, ".git")
+    common = os.path.realpath(os.path.join(cwd, common)) if common else os.path.realpath(os.path.join(toplevel, ".git"))
     main_root = os.path.dirname(common)
     project = os.path.basename(main_root.rstrip(os.sep))
 
