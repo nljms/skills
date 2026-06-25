@@ -88,10 +88,26 @@ source root + glob before serving. No manual re-run, no watcher process.
 
 - A **single global server** serves the entire `~/.claude/doc-server/` root, so
   one process covers all projects and worktrees.
-- Default port **`8910`**; override via `--port` or `$DOC_SERVER_PORT`.
-- **Singleton:** on launch the script probes the port. If our server is already
-  running, it reuses it and prints the URL; otherwise it starts one in the
-  background.
+- **Port resolution order** on launch:
+  1. Explicit `--port` flag, else `$DOC_SERVER_PORT`, else the **remembered
+     port** from state (see below), else the default **`8910`**.
+  2. Check whether that port is free.
+     - If it is free → bind to it and **persist it** as the remembered port.
+     - If it is occupied by **our own already-running doc-server** → reuse it
+       (singleton) and print the URL; do not start a second process.
+     - If it is occupied by **some other process** → scan upward for the next
+       free port (e.g. `8910 → 8911 → …`, bounded range), bind to the first
+       free one, and **persist that** as the new remembered port.
+- **Remembered port (persisted in memory):** the chosen port is stored in a
+  small state file, `~/.claude/doc-server/state.json` (e.g.
+  `{ "port": 8912 }`). Subsequent runs read it first so the server stays at a
+  stable URL across invocations until the port becomes unavailable. An explicit
+  `--port` overrides and updates the remembered value.
+- **Distinguishing our server from a stranger:** the running doc-server exposes a
+  health endpoint (e.g. `GET /__doc_server_health__` returning a known JSON
+  marker). A probe that returns the marker means "reuse"; a refused connection
+  means "free"; any other response means "occupied by a stranger → try next
+  port."
 - **Registry:** `registry.json` maps each project/worktree key to its source root
   and glob. Registering a project adds/updates its entry; the server uses it to
   re-sync on demand.
@@ -143,12 +159,18 @@ This makes the repo installable as a Claude Code plugin marketplace
 - **Server:** start the server on an ephemeral port, request a doc URL, assert the
   response contains the rendered wrapper and that editing the source `.md` then
   re-requesting reflects the change (live re-sync).
-- **Singleton:** second launch on a busy port reuses rather than crashes.
+- **Singleton:** a second launch detects our running server (via the health
+  marker) and reuses it rather than crashing or starting a duplicate.
+- **Port resolution:** with the default/remembered port occupied by a stranger,
+  the script picks the next free port and writes it to `state.json`; a following
+  run reads `state.json` and reuses that port.
 
 ## Error handling
 
-- Port already in use by a non-doc-server process → fail with a clear message
-  suggesting `--port`.
+- Port already in use by a non-doc-server process → automatically scan upward for
+  the next free port and remember it (see Server & port behavior). Only fail if no
+  free port is found within the bounded range, with a clear message suggesting
+  `--port`.
 - Asset download failure → fall back to CDN URLs in the generated HTML and warn.
 - Glob matches nothing → still start the server and render an empty landing page
   noting no docs were found.
