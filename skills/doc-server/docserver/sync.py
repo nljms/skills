@@ -4,6 +4,8 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
+from . import state
+
 DEFAULT_GLOB = "docs/**/*.md"
 
 ASSET_URLS = {
@@ -102,3 +104,60 @@ def render_index_html(title: str, entries) -> str:
 </ul>
 </body>
 </html>"""
+
+
+def _flatten(rel: Path) -> str:
+    return str(rel.with_suffix("")).replace(os.sep, "__") + ".html"
+
+
+def sync_target(home: Path, key: str, source_root: str, glob: str):
+    dest = home / key
+    dest.mkdir(parents=True, exist_ok=True)
+    for old in dest.glob("*.html"):
+        old.unlink()
+
+    local = assets_available(home)
+    names = []
+    for md in find_docs(source_root, glob):
+        rel = md.relative_to(source_root)
+        flat = _flatten(rel)
+        text = md.read_text(encoding="utf-8", errors="replace")
+        (dest / flat).write_text(render_doc_html(str(rel), text, local), encoding="utf-8")
+        names.append((flat, str(rel)))
+
+    entries = [(flat, label) for flat, label in names]
+    (dest / "index.html").write_text(render_index_html(key, entries), encoding="utf-8")
+    return names
+
+
+def write_project_index(home: Path, project: str) -> None:
+    base = home / project
+    base.mkdir(parents=True, exist_ok=True)
+    entries = []
+    if (base / "main").is_dir():
+        entries.append(("main/index.html", "main"))
+    wt = base / "worktrees"
+    if wt.is_dir():
+        for d in sorted(wt.iterdir()):
+            if d.is_dir():
+                entries.append((f"worktrees/{d.name}/index.html", f"worktrees/{d.name}"))
+    (base / "index.html").write_text(render_index_html(project, entries), encoding="utf-8")
+
+
+def write_root_index(home: Path) -> None:
+    entries = []
+    for d in sorted(home.iterdir()):
+        if d.is_dir() and d.name != "_assets":
+            entries.append((f"{d.name}/index.html", d.name))
+    (home / "index.html").write_text(render_index_html("doc-server", entries), encoding="utf-8")
+
+
+def sync_all(home: Path) -> None:
+    reg = state.read_registry()
+    projects = set()
+    for key, info in reg.items():
+        sync_target(home, key, info["source_root"], info["glob"])
+        projects.add(key.split("/", 1)[0])
+    for project in sorted(projects):
+        write_project_index(home, project)
+    write_root_index(home)
