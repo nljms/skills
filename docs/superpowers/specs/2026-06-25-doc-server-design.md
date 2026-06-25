@@ -100,9 +100,13 @@ source root + glob before serving. No manual re-run, no watcher process.
        free one, and **persist that** as the new remembered port.
 - **Remembered port (persisted in memory):** the chosen port is stored in a
   small state file, `~/.claude/doc-server/state.json` (e.g.
-  `{ "port": 8912 }`). Subsequent runs read it first so the server stays at a
-  stable URL across invocations until the port becomes unavailable. An explicit
-  `--port` overrides and updates the remembered value.
+  `{ "port": 8912 }`) — the **single source of truth**. Subsequent runs read it
+  first so the server stays at a stable URL across invocations until the port
+  becomes unavailable. An explicit `--port` overrides and updates the remembered
+  value. The script deliberately does **not** write to `~/.zshrc` or any shell
+  config: `state.json` can be rewritten instantly when an auto-scan picks a new
+  port, whereas a shell export only affects newly opened shells and would drift.
+  `$DOC_SERVER_PORT` remains a purely optional manual override read at launch.
 - **Distinguishing our server from a stranger:** the running doc-server exposes a
   health endpoint (e.g. `GET /__doc_server_health__` returning a known JSON
   marker). A probe that returns the marker means "reuse"; a refused connection
@@ -131,6 +135,30 @@ Behavior:
 
 - Default glob: `docs/**/*.md` (configurable per run).
 
+## Auto-invocation (SessionStart hook)
+
+The skill ships a hook so the doc server starts automatically whenever you open a
+session in a project that has docs, without the agent having to remember to invoke
+it.
+
+- **Mechanism:** a `SessionStart` hook entry in `~/.claude/settings.json` runs a
+  small script, `hooks/session_start.py`, shipped with the skill.
+- **Detection:** the hook checks whether the project's dedicated docs directory
+  (the `docs/` dir, the same root the default glob targets) exists and contains at
+  least one `.md` file. The check resolves relative to the session's working
+  directory / git toplevel.
+- **Action when docs are found:** the hook invokes the same logic as
+  `serve.py` (resolve identity → register → ensure server running → sync) and
+  surfaces the project's landing-page URL as session context, so the URL is
+  available immediately. When no docs are found it exits silently and does
+  nothing.
+- **Idempotent:** because the server is a singleton keyed on the remembered port,
+  repeated SessionStart firings reuse the already-running server.
+- **Setup:** installing the skill includes a one-time step that adds the
+  `SessionStart` hook to `~/.claude/settings.json`. The hook entry and the manual
+  `serve.py` invocation share the same underlying code path, so behavior is
+  identical whether triggered automatically or by hand.
+
 ## Repo layout (this repo, matching `anthropics/skills` template)
 
 ```
@@ -143,11 +171,21 @@ skills/                       (repo root)
 └── skills/
     └── doc-server/
         ├── SKILL.md
-        └── serve.py
+        ├── serve.py             # CLI entry: resolve, register, ensure server, sync
+        ├── docserver/           # shared core imported by serve.py and the hook
+        │   ├── __init__.py
+        │   ├── identity.py      # git project/worktree resolution
+        │   ├── sync.py          # md -> html generation + landing pages
+        │   ├── server.py        # http.server handler + singleton/port logic
+        │   └── state.py         # state.json + registry.json read/write
+        └── hooks/
+            └── session_start.py # SessionStart hook: detect docs, reuse core
 ```
 
 This makes the repo installable as a Claude Code plugin marketplace
-(`/plugin marketplace add <repo>`), the same way the Anthropic repo works.
+(`/plugin marketplace add <repo>`), the same way the Anthropic repo works. The
+`serve.py` CLI and `hooks/session_start.py` both call into the shared `docserver`
+package so manual and automatic invocation are identical.
 
 ## Testing strategy
 
@@ -164,6 +202,9 @@ This makes the repo installable as a Claude Code plugin marketplace
 - **Port resolution:** with the default/remembered port occupied by a stranger,
   the script picks the next free port and writes it to `state.json`; a following
   run reads `state.json` and reuses that port.
+- **SessionStart hook:** in a temp project containing `docs/*.md` the hook starts
+  the server and emits the URL; in a project with no docs dir / no `.md` files it
+  exits silently and starts nothing.
 
 ## Error handling
 
