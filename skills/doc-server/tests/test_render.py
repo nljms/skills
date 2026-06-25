@@ -33,6 +33,25 @@ class TestRender(unittest.TestCase):
         html = sync.render_doc_html("a.md", "x", assets_local=True)
         self.assertIn("/_assets/marked.min.js", html)
 
+    def test_render_doc_uses_external_render_js_not_inline(self):
+        html = sync.render_doc_html("a.md", "# Hello", assets_local=True)
+        # Must reference the external render.js
+        self.assertIn("/_assets/render.js", html)
+        # Must NOT contain an inline marked.parse call
+        self.assertNotIn("marked.parse", html)
+
+    def test_ensure_assets_no_fetch_writes_render_js(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            os.environ["DOC_SERVER_NO_FETCH"] = "1"
+            try:
+                sync.ensure_assets(home)
+            finally:
+                os.environ.pop("DOC_SERVER_NO_FETCH", None)
+            render_js = home / "_assets" / "render.js"
+            self.assertTrue(render_js.exists())
+            self.assertIn("marked.parse", render_js.read_text(encoding="utf-8"))
+
     def test_render_index_lists_entries(self):
         html = sync.render_index_html("repo", [("main/index.html", "main")])
         self.assertIn('href="main/index.html"', html)

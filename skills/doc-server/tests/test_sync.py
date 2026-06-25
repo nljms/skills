@@ -40,6 +40,18 @@ class TestSync(unittest.TestCase):
         self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
         self.assertFalse((self.home / "repo" / "main" / "docs__a.html").exists())
 
+    def test_sync_target_kept_file_continuously_present(self):
+        """A doc that survives across two syncs must exist both before and after."""
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
+        kept = self.home / "repo" / "main" / "docs__sub__b.html"
+        self.assertTrue(kept.exists(), "kept file should exist after first sync")
+        # Remove only a.md so b.md (kept) is still present in source.
+        os.remove(os.path.join(self._src.name, "docs", "a.md"))
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
+        self.assertTrue(kept.exists(), "kept file should still exist after second sync")
+        # Stale file should be gone.
+        self.assertFalse((self.home / "repo" / "main" / "docs__a.html").exists())
+
     def test_sync_all_builds_project_and_root_indexes(self):
         self.state.register_target("repo/main", self._src.name, self.sync.DEFAULT_GLOB)
         self.state.register_target("repo/worktrees/feat", self._src.name, self.sync.DEFAULT_GLOB)

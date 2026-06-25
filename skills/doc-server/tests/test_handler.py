@@ -63,6 +63,18 @@ class TestHandler(unittest.TestCase):
         body = _get(self.port, self.server.HEALTH_PATH)
         self.assertEqual(json.loads(body), {"doc_server": True})
 
+    def test_response_includes_csp_header(self):
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{self.port}/repo/main/docs__a.html", timeout=2
+        ) as r:
+            csp = r.headers.get("Content-Security-Policy", "")
+        self.assertIn("script-src 'self'", csp)
+        # script-src must NOT contain 'unsafe-inline'
+        # Extract just the script-src directive value
+        script_src_match = re.search(r"script-src([^;]+)", csp)
+        self.assertIsNotNone(script_src_match, "script-src directive must be present")
+        self.assertNotIn("'unsafe-inline'", script_src_match.group(1))
+
     def test_serves_doc_and_live_resyncs_on_edit(self):
         def decoded():
             html = _get(self.port, "/repo/main/docs__a.html")

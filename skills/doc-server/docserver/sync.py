@@ -1,10 +1,24 @@
 import base64
 import os
+import threading
 import urllib.request
 from html import escape
 from pathlib import Path
 
 from . import state
+
+_SYNC_LOCK = threading.Lock()
+
+RENDER_JS = """\
+(function () {
+  var el = document.getElementById('md-data');
+  if (!el) return;
+  var raw = el.textContent;
+  var bytes = Uint8Array.from(atob(raw), function (c) { return c.charCodeAt(0); });
+  var md = new TextDecoder('utf-8').decode(bytes);
+  document.getElementById('content').innerHTML = marked.parse(md);
+})();
+"""
 
 DEFAULT_GLOB = "docs/**/*.md"
 
@@ -29,10 +43,12 @@ def assets_available(home: Path) -> bool:
 
 
 def ensure_assets(home: Path) -> bool:
-    if os.environ.get("DOC_SERVER_NO_FETCH"):
-        return assets_available(home)
     a = home / "_assets"
     a.mkdir(parents=True, exist_ok=True)
+    # Always write our own render.js (OUR code, must exist even offline).
+    (a / "render.js").write_text(RENDER_JS, encoding="utf-8")
+    if os.environ.get("DOC_SERVER_NO_FETCH"):
+        return assets_available(home)
     for name, url in ASSET_URLS.items():
         if (a / name).exists():
             continue
@@ -66,14 +82,7 @@ def render_doc_html(title: str, markdown_text: str, assets_local: bool) -> str:
 <article class="markdown-body" id="content">Loading&hellip;</article>
 <script id="md-data" type="application/base64">{b64}</script>
 <script src="{js}"></script>
-<script>
-  (function () {{
-    var raw = document.getElementById('md-data').textContent;
-    var bytes = Uint8Array.from(atob(raw), function (c) {{ return c.charCodeAt(0); }});
-    var md = new TextDecoder('utf-8').decode(bytes);
-    document.getElementById('content').innerHTML = marked.parse(md);
-  }})();
-</script>
+<script src="/_assets/render.js"></script>
 </body>
 </html>"""
 
@@ -110,23 +119,37 @@ def _flatten(rel: Path) -> str:
     return str(rel.with_suffix("")).replace(os.sep, "__") + ".html"
 
 
+def _atomic_write_text(dest_file: Path, content: str) -> None:
+    """Write content to dest_file atomically using a same-dir temp file + os.replace."""
+    tmp = dest_file.with_suffix(".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, dest_file)
+
+
 def sync_target(home: Path, key: str, source_root: str, glob: str):
     dest = home / key
     dest.mkdir(parents=True, exist_ok=True)
-    for old in dest.glob("*.html"):
-        old.unlink()
 
     local = assets_available(home)
     names = []
+    current_flats: set[str] = set()
     for md in find_docs(source_root, glob):
         rel = md.relative_to(source_root)
         flat = _flatten(rel)
+        current_flats.add(flat)
         text = md.read_text(encoding="utf-8", errors="replace")
-        (dest / flat).write_text(render_doc_html(str(rel), text, local), encoding="utf-8")
+        _atomic_write_text(dest / flat, render_doc_html(str(rel), text, local))
         names.append((flat, str(rel)))
 
     entries = [(flat, label) for flat, label in names]
-    (dest / "index.html").write_text(render_index_html(key, entries), encoding="utf-8")
+    _atomic_write_text(dest / "index.html", render_index_html(key, entries))
+    current_flats.add("index.html")
+
+    # Remove stale HTML files AFTER writing new content.
+    for old in dest.glob("*.html"):
+        if old.name not in current_flats:
+            old.unlink()
+
     return names
 
 
@@ -153,11 +176,16 @@ def write_root_index(home: Path) -> None:
 
 
 def sync_all(home: Path) -> None:
-    reg = state.read_registry()
-    projects = set()
-    for key, info in reg.items():
-        sync_target(home, key, info["source_root"], info["glob"])
-        projects.add(key.split("/", 1)[0])
-    for project in sorted(projects):
-        write_project_index(home, project)
-    write_root_index(home)
+    # Ensure render.js exists even if ensure_assets wasn't called (daemon path).
+    assets_dir = home / "_assets"
+    if assets_dir.is_dir():
+        _atomic_write_text(assets_dir / "render.js", RENDER_JS)
+    with _SYNC_LOCK:
+        reg = state.read_registry()
+        projects = set()
+        for key, info in reg.items():
+            sync_target(home, key, info["source_root"], info["glob"])
+            projects.add(key.split("/", 1)[0])
+        for project in sorted(projects):
+            write_project_index(home, project)
+        write_root_index(home)

@@ -13,6 +13,14 @@ from . import state, sync
 HEALTH_PATH = "/__doc_server_health__"
 HEALTH_MARKER = {"doc_server": True}
 PORT_SCAN_RANGE = 50
+CSP = (
+    "default-src 'none'; "
+    "script-src 'self' https://cdn.jsdelivr.net; "
+    "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+    "img-src 'self' data: https:; "
+    "font-src 'self' https://cdn.jsdelivr.net; "
+    "connect-src 'self'"
+)
 
 
 def is_port_free(port: int) -> bool:
@@ -52,6 +60,10 @@ def resolve_port(preferred: int):
 
 
 class DocHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Content-Security-Policy", CSP)
+        super().end_headers()
+
     def do_GET(self):
         if self.path == HEALTH_PATH:
             body = json.dumps(HEALTH_MARKER).encode("utf-8")
