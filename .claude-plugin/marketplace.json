@@ -1,0 +1,22 @@
+{
+  "name": "nljms-skills",
+  "owner": {
+    "name": "Neil Monzales",
+    "email": "neiljames97@gmail.com"
+  },
+  "metadata": {
+    "description": "Neil's personal Claude skills",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "doc-server",
+      "description": "Serve project plans and docs as browsable HTML on a local port, grouped by project and git worktree.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/doc-server"
+      ]
+    }
+  ]
+}
