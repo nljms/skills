@@ -25,9 +25,12 @@ out on `feat/login` is at `/myrepo/feat/login/`. Branches replace the older
 - Each **landing page** is auto-generated:
   - The **root** explains how the server works end-to-end and shows a Mermaid map
     of every project → branch.
-  - A **branch page** renders a Mermaid diagram of that branch's document structure
-    and, since the source docs have no served HTML of their own, a per-document
-    summary card with a **table of contents** linking straight to each heading.
+  - A **branch page** leads with an optional **"what this worktree is doing"**
+    panel (from an agent-written `docs/worktree-summary.md`, or any doc with
+    frontmatter `worktree_summary: true`), then an auto **overview / architecture /
+    external-services** block scanned from the project's code, then a Mermaid
+    diagram of the branch's document structure and a per-document summary card with
+    a **table of contents** linking straight to each heading.
 - **Document pages** render the markdown (GitHub styling), add heading anchors so
   the tables of contents resolve, and turn ```mermaid fenced blocks into diagrams.
 - All internal links are absolute (`/<project>/<branch>/…`), so navigation never
@@ -89,9 +92,19 @@ open a session in a project that has a `docs/` directory with markdown. Add this
 }
 ```
 
-When no `docs/` markdown is found the hook does nothing.
+When no `docs/` markdown is found the hook does nothing. On a feature branch or a
+linked worktree that has no summary doc yet, the hook also nudges the agent to
+write `docs/worktree-summary.md` — a short narrative of what the worktree is
+working on (feature / bugfix / debug / research) with an end-to-end Mermaid diagram
+of the problem and context, which the branch page then promotes to its lead panel.
 
 ## Notes
+
+- **Code scan.** The overview / architecture / external-services block is detected
+  heuristically from dependency manifests (`package.json`, `pyproject.toml`,
+  `requirements.txt`, `go.mod`, `Cargo.toml`, `Gemfile`), `docker-compose.yml`, and
+  `.env*`. Results are cached per-branch (`.inspect.json`) and only recomputed when
+  those signal files change, so the live re-sync stays fast.
 
 - Python 3 standard library only — no installs required.
 - Markdown and Mermaid are rendered client-side by assets cached once in

@@ -40,10 +40,22 @@ The branches of one project: a project → branch map and clickable branch tiles
 
 ### Branch index — `/<project>/<branch>/`
 
-The core screen. Because the source docs have no served HTML of their own,
-doc-server synthesizes a **structure diagram** of the document tree plus one
-**summary card per document** — title, file path, a `PLAN`/`SPEC` tag, and a
-compact table of contents whose entries link straight to each heading.
+The core screen. From top to bottom it shows:
+
+- **What this worktree is doing** — an optional lead panel rendered from an
+  agent-written `docs/worktree-summary.md` (or any doc with frontmatter
+  `worktree_summary: true`): the summary title, its intro paragraph, the first
+  Mermaid diagram inlined as an end-to-end picture of the problem/context, and a
+  "Read full summary" link. The `SessionStart` hook nudges the agent to write one
+  on a feature branch or linked worktree that doesn't have it yet.
+- **Overview & architecture / External services** — auto-detected by scanning the
+  project's code (dependency manifests, `docker-compose.yml`, `.env*`): the
+  stack/type/entry points, a Mermaid map of the top-level structure, and a grid of
+  detected external services (databases, APIs, cloud SDKs). Hidden when nothing is
+  detected, so a docs-only project is unaffected.
+- **Structure** — a Mermaid diagram of the document tree.
+- **Documents** — one **summary card per document**: title, file path, a
+  `PLAN`/`SPEC` tag, and a compact table of contents linking to each heading.
 
 ![Branch index](./assets/screenshots/branch.png)
 

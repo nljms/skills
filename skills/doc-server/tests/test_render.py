@@ -125,6 +125,63 @@ class TestRender(unittest.TestCase):
         self.assertIn("HOW IT WORKS", html)  # redesign uses uppercase eyebrow labels
         self.assertIn('href="/repo/index.html"', html)
 
+    def test_split_frontmatter_parses_and_strips(self):
+        meta, body = sync.split_frontmatter("---\nworktree_summary: true\nx: hi\n---\n# Title\nbody")
+        self.assertEqual(meta["worktree_summary"], True)
+        self.assertEqual(meta["x"], "hi")
+        self.assertTrue(body.startswith("# Title"))
+        self.assertNotIn("worktree_summary", body)
+
+    def test_split_frontmatter_leaves_plain_docs_alone(self):
+        meta, body = sync.split_frontmatter("# Just a doc\n\n---\na horizontal rule above")
+        self.assertEqual(meta, {})
+        self.assertTrue(body.startswith("# Just a doc"))
+
+    def test_summary_recognized_by_filename_or_flag(self):
+        self.assertTrue(sync.is_summary_doc("docs/worktree-summary.md", {}))
+        self.assertTrue(sync.is_summary_doc("docs/notes.md", {"worktree_summary": True}))
+        self.assertFalse(sync.is_summary_doc("docs/plan.md", {}))
+
+    def test_branch_index_renders_summary_panel(self):
+        summary = {
+            "title": "Building login",
+            "lede": "Adds OAuth login end to end.",
+            "mermaid": "graph TD\n A-->B",
+            "href": "/repo/main/docs__worktree-summary.html",
+        }
+        html = sync.render_branch_index("repo", "main", [], {"repo": ["main"]},
+                                        assets_local=True, summary=summary)
+        self.assertIn("WHAT THIS WORKTREE IS DOING", html)
+        self.assertIn("Building login", html)
+        self.assertIn("Adds OAuth login end to end.", html)
+        self.assertIn("Read full summary", html)
+        self.assertIn("A--&gt;B", html)  # mermaid embedded + escaped
+
+    def test_branch_index_renders_inspect_section(self):
+        data = {
+            "overview": {"languages": ["Python"], "project_type": "CLI tool",
+                         "entry_points": ["serve.py"]},
+            "architecture": ["docserver/", "docserver/app.py"],
+            "services": [{"name": "Postgres", "kind": "database", "via": "x"}],
+        }
+        html = sync.render_branch_index("repo", "main", [], {"repo": ["main"]},
+                                        assets_local=True, inspect_data=data)
+        self.assertIn("OVERVIEW &amp; ARCHITECTURE", html)
+        self.assertIn("EXTERNAL SERVICES", html)
+        self.assertIn("Postgres", html)
+        self.assertIn("CLI tool", html)
+        self.assertIn("serve.py", html)
+
+    def test_branch_index_unchanged_when_no_inspect_or_summary(self):
+        # Backward compat: existing call shape still produces the docs view intact.
+        docs = [{"flat": "docs__a.html", "rel": "docs/a.md", "title": "A",
+                 "toc": [(1, "A", "a")]}]
+        html = sync.render_branch_index("repo", "main", docs, {"repo": ["main"]},
+                                        assets_local=True)
+        self.assertNotIn("WHAT THIS WORKTREE IS DOING", html)
+        self.assertNotIn("OVERVIEW &amp; ARCHITECTURE", html)
+        self.assertIn("STRUCTURE", html)  # existing section still present
+
 
 if __name__ == "__main__":
     unittest.main()
