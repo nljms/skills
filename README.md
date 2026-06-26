@@ -4,11 +4,19 @@ Personal collection of Claude skills, structured as a Claude Code plugin marketp
 
 ## Install in Claude Code
 
+Add this marketplace, then install a plugin from it:
+
 ```
-/plugin marketplace add <this-repo>
+/plugin marketplace add nljms/skills
+/plugin install doc-server@nljms-skills
 ```
 
-Then install the `doc-server` plugin from the marketplace browser.
+Or browse and install interactively after adding the marketplace:
+
+```
+/plugin marketplace add nljms/skills
+/plugin
+```
 
 ## Skills
 
