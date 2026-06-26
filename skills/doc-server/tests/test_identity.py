@@ -22,7 +22,7 @@ class TestIdentity(unittest.TestCase):
             os.makedirs(proj)
             ident = resolve_identity(proj)
             self.assertEqual(ident.project, "myproj")
-            self.assertEqual(ident.group, "main")
+            self.assertEqual(ident.branch, "main")
             self.assertFalse(ident.is_git)
             self.assertEqual(ident.key, "myproj/main")
 
@@ -30,29 +30,32 @@ class TestIdentity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             repo = os.path.join(d, "repo")
             os.makedirs(repo)
-            _git(["init"], repo)
+            _git(["init", "-b", "main"], repo)
             open(os.path.join(repo, "f.txt"), "w").close()
             _git(["add", "."], repo)
             _git(["commit", "-m", "init"], repo)
             ident = resolve_identity(repo)
             self.assertEqual(ident.project, "repo")
-            self.assertEqual(ident.group, "main")
+            self.assertEqual(ident.branch, "main")
+            self.assertEqual(ident.key, "repo/main")
             self.assertTrue(ident.is_git)
 
-    def test_linked_worktree_is_grouped(self):
+    def test_worktree_is_keyed_by_branch(self):
         with tempfile.TemporaryDirectory() as d:
             repo = os.path.join(d, "repo")
             os.makedirs(repo)
-            _git(["init"], repo)
+            _git(["init", "-b", "main"], repo)
             open(os.path.join(repo, "f.txt"), "w").close()
             _git(["add", "."], repo)
             _git(["commit", "-m", "init"], repo)
             wt = os.path.join(d, "feature-x")
-            _git(["worktree", "add", wt, "-b", "feature-x"], repo)
+            # Branch name intentionally differs from the worktree dir name and
+            # contains a slash, to prove we key by branch, not directory.
+            _git(["worktree", "add", wt, "-b", "feat/login"], repo)
             ident = resolve_identity(wt)
             self.assertEqual(ident.project, "repo")
-            self.assertEqual(ident.group, "worktrees/feature-x")
-            self.assertEqual(ident.key, "repo/worktrees/feature-x")
+            self.assertEqual(ident.branch, "feat/login")
+            self.assertEqual(ident.key, "repo/feat/login")
 
 
 if __name__ == "__main__":

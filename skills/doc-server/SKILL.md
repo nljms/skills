@@ -1,18 +1,37 @@
 ---
 name: doc-server
-description: Serve the plans, specs, and design docs the agent writes as browsable HTML on a dedicated local port so a human can review them visually and fast. Unifies docs from all projects under one folder, grouped per project and per git worktree. Use when the user wants to preview, view, open, or serve project docs/plans/specs in a browser, or when a project has a docs/ directory worth surfacing.
+description: Serve the plans, specs, and design docs the agent writes as browsable HTML on a dedicated local port so a human can review them visually and fast. Unifies docs from all projects under one folder, grouped per project and per git branch, with a sidebar navigator, auto-generated structure diagrams, and per-document tables of contents. Use when the user wants to preview, view, open, or serve project docs/plans/specs in a browser, or when a project has a docs/ directory worth surfacing.
 ---
 
 # doc-server
 
 Serve a project's markdown docs (plans, specs, design notes) as rendered HTML on a
 single shared `localhost` port. All projects live under one global folder,
-`~/.claude/doc-server/`, grouped by project and git worktree:
+`~/.claude/doc-server/`, grouped by project and by **git branch** — every checkout,
+whether the main worktree or a linked worktree, lands at one stable, readable path:
 
 ```
-http://localhost:8910/<project>/main/
-http://localhost:8910/<project>/worktrees/<name>/
+http://localhost:8910/<project>/<branch>/
 ```
+
+For example `myrepo` on branch `main` is at `/myrepo/main/`, and a worktree checked
+out on `feat/login` is at `/myrepo/feat/login/`. Branches replace the older
+`main` / `worktrees/<name>` split so the URL always matches the branch you are on.
+
+## What the viewer looks like
+
+- A **sidebar navigator** lists every project; expand one to see its branches and
+  jump to any of them or any document.
+- Each **landing page** is auto-generated:
+  - The **root** explains how the server works end-to-end and shows a Mermaid map
+    of every project → branch.
+  - A **branch page** renders a Mermaid diagram of that branch's document structure
+    and, since the source docs have no served HTML of their own, a per-document
+    summary card with a **table of contents** linking straight to each heading.
+- **Document pages** render the markdown (GitHub styling), add heading anchors so
+  the tables of contents resolve, and turn ```mermaid fenced blocks into diagrams.
+- All internal links are absolute (`/<project>/<branch>/…`), so navigation never
+  breaks regardless of how deep a branch name nests.
 
 ## Serve the current project's docs
 
@@ -22,7 +41,7 @@ Run from the project directory:
 python3 <skill-dir>/serve.py --docs "docs/**/*.md"
 ```
 
-- Resolves the git project + worktree, registers it, ensures the shared server is
+- Resolves the git project + branch, registers it, ensures the shared server is
   running (reusing it if already up), syncs the docs, and prints the URL.
 - `--port N` forces a port; otherwise the port comes from `$DOC_SERVER_PORT`, then
   the remembered port in `~/.claude/doc-server/state.json`, then the default `8910`.
@@ -31,6 +50,21 @@ python3 <skill-dir>/serve.py --docs "docs/**/*.md"
 - `--open` also opens the URL in the default browser.
 
 The server re-syncs on every page load, so edits to the docs show up on refresh.
+
+## Migrating an existing doc-server home
+
+If you generated docs under the older `main` / `worktrees/<name>` layout, re-key and
+regenerate them in one step:
+
+```
+python3 <skill-dir>/serve.py --migrate
+```
+
+This re-resolves every registered project to its `<project>/<branch>` path, drops
+entries whose source is gone, removes the stale generated directories, and rebuilds
+the HTML. The generated HTML is a disposable cache, so the operation is safe and
+idempotent. See [`docs/superpowers/plans/2026-06-25-doc-server-routing-ui.md`](../../docs/superpowers/plans/2026-06-25-doc-server-routing-ui.md)
+for the full migration plan.
 
 ## Auto-invoke on session start (optional, recommended)
 
@@ -60,5 +94,6 @@ When no `docs/` markdown is found the hook does nothing.
 ## Notes
 
 - Python 3 standard library only — no installs required.
-- Markdown is rendered client-side by assets cached once in
-  `~/.claude/doc-server/_assets/` (CDN fallback if the download fails).
+- Markdown and Mermaid are rendered client-side by assets cached once in
+  `~/.claude/doc-server/_assets/` (`marked`, `github-markdown-css`, `mermaid`), with
+  a CDN fallback if the one-time download fails.
