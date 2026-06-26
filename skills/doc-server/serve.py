@@ -14,8 +14,17 @@ def main(argv=None):
     parser.add_argument("--docs", default="docs/**/*.md", help="glob of docs to serve")
     parser.add_argument("--port", type=int, default=None, help="preferred port")
     parser.add_argument("--open", action="store_true", help="open the browser")
+    parser.add_argument(
+        "--migrate", action="store_true",
+        help="migrate an existing doc-server home to the <project>/<branch> layout, then exit",
+    )
     parser.add_argument("--daemon", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    if args.migrate:
+        from docserver import migrate
+        migrate.main()
+        return
 
     if args.daemon:
         if args.port is None:
