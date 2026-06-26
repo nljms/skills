@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -26,6 +27,21 @@ def _free_port():
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+def _run(cmd, cwd):
+    subprocess.run(cmd, cwd=cwd, check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _git_repo(d, branch):
+    _run(["git", "init", "-q"], d)
+    _run(["git", "config", "user.email", "t@t"], d)
+    _run(["git", "config", "user.name", "t"], d)
+    Path(d, "f.txt").write_text("x")
+    _run(["git", "add", "-A"], d)
+    _run(["git", "commit", "-q", "-m", "init"], d)
+    _run(["git", "branch", "-m", branch], d)
 
 
 class TestHook(unittest.TestCase):
@@ -63,6 +79,38 @@ class TestHook(unittest.TestCase):
             result = hook.run(d)
             self.assertIsNotNone(result)
             self.assertEqual(result["port"], self.port)
+
+    def test_nudge_on_feature_branch_without_summary(self):
+        hook = _load_hook()
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d, "feat/login")
+            os.makedirs(os.path.join(d, "docs"))
+            Path(d, "docs", "plan.md").write_text("# Plan", encoding="utf-8")
+            nudge = hook.summary_nudge(d)
+            self.assertIsNotNone(nudge)
+            self.assertIn("worktree-summary.md", nudge)
+            self.assertIn("feat/login", nudge)
+
+    def test_no_nudge_when_summary_present(self):
+        hook = _load_hook()
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d, "feat/login")
+            os.makedirs(os.path.join(d, "docs"))
+            Path(d, "docs", "worktree-summary.md").write_text("# S", encoding="utf-8")
+            self.assertIsNone(hook.summary_nudge(d))
+
+    def test_no_nudge_on_default_branch(self):
+        hook = _load_hook()
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d, "main")
+            os.makedirs(os.path.join(d, "docs"))
+            Path(d, "docs", "plan.md").write_text("# Plan", encoding="utf-8")
+            self.assertIsNone(hook.summary_nudge(d))
+
+    def test_no_nudge_outside_git(self):
+        hook = _load_hook()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(hook.summary_nudge(d))
 
 
 if __name__ == "__main__":

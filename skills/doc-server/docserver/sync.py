@@ -6,7 +6,7 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
-from . import state
+from . import inspect, state
 
 _SYNC_LOCK = threading.Lock()
 
@@ -431,6 +431,82 @@ def doc_title(markdown_text: str, fallback: str) -> str:
     return fallback
 
 
+def split_frontmatter(text: str):
+    """Return (meta, body). Strip a leading ``---`` … ``---`` block of simple
+    ``key: value`` lines; otherwise meta is {} and body is the text unchanged.
+
+    Only a genuine frontmatter block (first line exactly ``---``, a later closing
+    ``---``) is consumed, so a doc that merely opens with a horizontal rule is
+    left alone.
+    """
+    if not text.startswith("---"):
+        return {}, text
+    lines = text.splitlines(keepends=True)
+    if lines[0].strip() != "---":
+        return {}, text
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return {}, text
+    meta = {}
+    for raw in lines[1:end]:
+        line = raw.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip().lower()
+        val = val.strip().strip('"').strip("'")
+        low = val.lower()
+        if low in ("true", "yes"):
+            meta[key] = True
+        elif low in ("false", "no"):
+            meta[key] = False
+        else:
+            meta[key] = val
+    return meta, "".join(lines[end + 1:]).lstrip("\n")
+
+
+def is_summary_doc(rel: str, meta: dict) -> bool:
+    """A doc is the worktree summary if it is named worktree-summary.md or carries
+    frontmatter ``worktree_summary: true``."""
+    if Path(rel).name.lower() == "worktree-summary.md":
+        return True
+    return bool(meta.get("worktree_summary"))
+
+
+def _first_paragraph(body: str) -> str:
+    """First prose paragraph — skips headings, lists, quotes, and code fences."""
+    in_fence = False
+    buf = []
+    for line in body.splitlines():
+        s = line.strip()
+        if s.startswith("```"):
+            if buf:
+                break
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if not s:
+            if buf:
+                break
+            continue
+        if s.startswith(("#", "-", "*", ">", "|", "<")):
+            if buf:
+                break
+            continue
+        buf.append(s)
+    return " ".join(buf)
+
+
+def _first_mermaid(body: str) -> str:
+    m = re.search(r"```mermaid\s*\n(.*?)```", body, re.S)
+    return m.group(1).strip() if m else ""
+
+
 # ---------------------------------------------------------------------------
 # Mermaid diagram builders
 # ---------------------------------------------------------------------------
@@ -480,6 +556,32 @@ def build_overview_mermaid(nav) -> str:
             bid = _mid(f"b/{project}/{branch}")
             lines.append(f'{bid}["🌿 {_mlabel(branch)}"]')
             lines.append(f"{pid} --> {bid}")
+    return "\n".join(lines)
+
+
+def build_arch_mermaid(root_label: str, rels) -> str:
+    """Top-down flowchart of a project's code structure. `rels` are paths with a
+    trailing ``/`` marking directories (as produced by inspect._arch_tree)."""
+    lines = ["graph TD", f'n_root["📦 {_mlabel(root_label)}"]']
+    seen = {"n_root"}
+    edges = []
+    for rel in rels:
+        is_dir = rel.endswith("/")
+        parts = [p for p in rel.rstrip("/").split("/") if p]
+        parent, acc = "n_root", ""
+        for i, seg in enumerate(parts):
+            acc = f"{acc}/{seg}" if acc else seg
+            nid = _mid(acc)
+            leaf = i == len(parts) - 1
+            if nid not in seen:
+                seen.add(nid)
+                icon = "📁 " if (not leaf or is_dir) else "📄 "
+                lines.append(f'{nid}["{icon}{_mlabel(seg)}"]')
+            edge = f"{parent} --> {nid}"
+            if edge not in edges:
+                edges.append(edge)
+            parent = nid
+    lines.extend(edges)
     return "\n".join(lines)
 
 
@@ -732,8 +834,83 @@ def _toc_list_html(base_href: str, toc, cap: int = 9) -> str:
     return html
 
 
+def _summary_panel_html(summary) -> str:
+    """Lead 'what this worktree is doing' panel (agent-written summary doc)."""
+    if not summary:
+        return ""
+    parts = [
+        '<div class="section-label"><span class="t">WHAT THIS WORKTREE IS DOING</span>'
+        '<span class="rule"></span></div>',
+        '<div class="tile" style="cursor:default">'
+        f'<div class="name" style="margin-bottom:6px">{escape(summary["title"])}</div>',
+    ]
+    if summary.get("lede"):
+        parts.append(f'<p class="lede" style="margin:0">{escape(summary["lede"])}</p>')
+    parts.append("</div>")
+    if summary.get("mermaid"):
+        parts.append(
+            '<div class="diagram dotted" style="margin-top:14px"><pre class="mermaid">'
+            + escape(summary["mermaid"]) + "</pre></div>"
+            '<div class="diagram-cap">Problem / context, end to end.</div>'
+        )
+    parts.append(
+        f'<a class="btn primary" href="{escape(summary["href"])}" '
+        f'style="margin-top:14px">Read full summary {_icon("arrow", 14)}</a>'
+    )
+    return "\n".join(parts)
+
+
+def _inspect_section_html(project: str, data) -> str:
+    """Auto code-scan section: overview badges + architecture diagram + services."""
+    if not data:
+        return ""
+    overview = data.get("overview") or {}
+    arch = data.get("architecture") or []
+    services = data.get("services") or []
+    if not overview and not arch and not services:
+        return ""
+    parts = [
+        '<div class="section-label"><span class="t">OVERVIEW &amp; ARCHITECTURE</span>'
+        '<span class="rule"></span></div>'
+    ]
+    badges = []
+    if overview.get("languages"):
+        badges.append('<span class="badge">' + escape(" · ".join(overview["languages"])) + "</span>")
+    if overview.get("project_type"):
+        badges.append('<span class="badge">' + escape(overview["project_type"]) + "</span>")
+    for e in overview.get("entry_points", []):
+        badges.append('<span class="badge">⌁ ' + escape(e) + "</span>")
+    if badges:
+        parts.append('<div class="badges">' + "".join(badges) + "</div>")
+    if arch:
+        parts.append(
+            '<div class="diagram dotted"><pre class="mermaid">'
+            + escape(build_arch_mermaid(project, arch)) + "</pre></div>"
+            '<div class="diagram-cap">Auto-detected from the project structure.</div>'
+        )
+    parts.append(
+        '<div class="section-label"><span class="t">EXTERNAL SERVICES</span>'
+        f'<span class="n">{len(services)}</span><span class="rule"></span></div>'
+    )
+    if services:
+        parts.append('<div class="tiles">')
+        for s in services:
+            via = escape(s.get("via", ""))
+            parts.append(
+                f'<div class="tile-branch" title="{via}">'
+                f'<span class="ic">{_icon("layers", 13)}</span>'
+                f'<span class="bn">{escape(s["name"])}</span>'
+                f'<span class="tag">{escape(s.get("kind", ""))}</span>'
+                "</div>"
+            )
+        parts.append("</div>")
+    else:
+        parts.append('<p class="empty">No external services detected.</p>')
+    return "\n".join(parts)
+
+
 def render_branch_index(project: str, branch: str, docs, nav,
-                        assets_local: bool) -> str:
+                        assets_local: bool, inspect_data=None, summary=None) -> str:
     """Landing page for one served branch.
 
     `docs` = [{flat, rel, title, toc}]. Because the source docs are plain
@@ -763,6 +940,12 @@ def render_branch_index(project: str, branch: str, docs, nav,
         '<span class="badge ok"><i></i>live</span>'
         '</div>',
     ]
+    panel = _summary_panel_html(summary)
+    if panel:
+        parts.append(panel)
+    inspect_html = _inspect_section_html(project, inspect_data)
+    if inspect_html:
+        parts.append(inspect_html)
     if not docs:
         parts.append('<p class="empty">No documents found for this branch.</p>')
         return render_shell(key, render_sidebar(nav, key), "\n".join(parts),
@@ -987,27 +1170,40 @@ def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
     local = assets_available(home)
     names = []
     docs_meta = []
+    summary = None
     current_flats: set = set()
     for md in find_docs(source_root, glob):
         rel = md.relative_to(source_root)
         flat = _flatten(rel)
         current_flats.add(flat)
         text = md.read_text(encoding="utf-8", errors="replace")
+        meta, body = split_frontmatter(text)
         _atomic_write_text(
             dest / flat,
-            render_doc_html(str(rel), text, local, back_href=back_href, sidebar_html=sidebar),
+            render_doc_html(str(rel), body, local, back_href=back_href, sidebar_html=sidebar),
         )
         names.append((flat, str(rel)))
+        # The agent-written summary is promoted to the lead panel, not a card.
+        if summary is None and is_summary_doc(str(rel), meta):
+            summary = {
+                "title": doc_title(body, str(rel)),
+                "lede": _first_paragraph(body),
+                "mermaid": _first_mermaid(body),
+                "href": f"/{key}/{flat}",
+            }
+            continue
         docs_meta.append({
             "flat": flat,
             "rel": str(rel),
-            "title": doc_title(text, str(rel)),
-            "toc": extract_toc(text),
+            "title": doc_title(body, str(rel)),
+            "toc": extract_toc(body),
         })
 
+    inspect_data = inspect.inspect_cached(source_root, dest)
     _atomic_write_text(
         dest / "index.html",
-        render_branch_index(project, branch, docs_meta, nav, local),
+        render_branch_index(project, branch, docs_meta, nav, local,
+                            inspect_data=inspect_data, summary=summary),
     )
     current_flats.add("index.html")
 
