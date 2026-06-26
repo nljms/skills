@@ -310,6 +310,7 @@ a { color: var(--accent); }
 /* ---- Document summary cards (branch index) ------------------------------ */
 .cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
 .card {
+  position: relative;
   display: flex; flex-direction: column; text-decoration: none; color: inherit;
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   padding: 18px 18px 16px; box-shadow: var(--shadow-sm);
@@ -327,14 +328,17 @@ a { color: var(--accent); }
 .card .path { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 5px; word-break: break-all; line-height: 1.45; }
 .card .div { height: 1px; background: var(--border); margin: 14px 0 11px; }
 .card .otp { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
-.toc { list-style: none; margin: 0; padding: 0; }
+.toc { list-style: none; margin: 0; padding: 0; position: relative; z-index: 1; }
 .toc li { display: flex; align-items: center; gap: 7px; padding: 4px 0; }
 .toc .hash { font-family: var(--mono); color: var(--faint); font-size: 11px; }
 .toc a { font-size: 12.5px; color: var(--secondary); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .toc a:hover { color: var(--accent); }
 .toc .more { font-size: 12px; color: var(--muted); padding: 5px 0 0 16px; }
-.card .open { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 13px; font-weight: 600; margin-top: auto; padding-top: 13px; }
+.card .open { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 13px; font-weight: 600; margin-top: auto; padding-top: 13px; text-decoration: none; }
 .card .open .div2 { display: none; }
+/* Stretched-link overlay: makes the whole card clickable (opens the doc) while
+   the TOC section links above it stay individually clickable. */
+.card .open::after { content: ""; position: absolute; inset: 0; z-index: 0; }
 
 /* ---- Document reader ----------------------------------------------------- */
 .content.doc { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 44px; align-items: start; max-width: 1180px; }
@@ -353,6 +357,9 @@ a { color: var(--accent); }
 @media (max-width: 720px) {
   .sidebar { display: none; }
   .content { padding: 24px 20px; }
+  /* Tight on phones: collapse "Back to branch" to just its arrow icon. */
+  .btn .btn-label { display: none; }
+  .btn { padding: 7px 9px; gap: 0; }
 }
 """
 
@@ -698,7 +705,10 @@ def render_doc_html(title: str, markdown_text: str, assets_local: bool,
     )
     here = doc_title(markdown_text, title)
     crumbs = _doc_crumbs(back_href, here)
-    actions = f'<a class="btn" href="{escape(back_href)}">{_icon("arrow-left", 14)}Back to branch</a>'
+    actions = (
+        f'<a class="btn" href="{escape(back_href)}" aria-label="Back to branch">'
+        f'{_icon("arrow-left", 14)}<span class="btn-label">Back to branch</span></a>'
+    )
     topbar = _topbar(crumbs, actions)
     main_html = (
         '<article class="markdown-body" id="content">Loading&hellip;</article>\n'
@@ -790,7 +800,11 @@ def render_branch_index(project: str, branch: str, docs, nav,
         doc_href = f"/{key}/{d['flat']}"
         label, kind = doc_tag(d["rel"])
         sections = len(d["toc"])
-        parts.append(f'<a class="card" href="{escape(doc_href)}">')
+        # The card is a <div>, not an <a>: it contains the TOC section links, and
+        # nesting <a> inside <a> is invalid HTML (the browser force-closes the
+        # outer anchor, spilling the rest of the card out of the grid). The whole
+        # card stays clickable via a stretched-link overlay on ".open" below.
+        parts.append('<div class="card">')
         parts.append(
             '<div class="card-head">'
             f'<span class="card-ic tag-{kind}">{_icon("file", 15)}</span>'
@@ -805,9 +819,9 @@ def render_branch_index(project: str, branch: str, docs, nav,
         parts.append('<div class="otp">ON THIS PAGE</div>')
         parts.append(_toc_list_html(doc_href, d["toc"]))
         parts.append(
-            f'<div class="open">Open document {_icon("arrow", 14)}</div>'
+            f'<a class="open" href="{escape(doc_href)}">Open document {_icon("arrow", 14)}</a>'
         )
-        parts.append("</a>")
+        parts.append("</div>")
     parts.append("</div>")
     return render_shell(key, render_sidebar(nav, key), "\n".join(parts),
                         body_scripts=_mermaid_scripts(assets_local),

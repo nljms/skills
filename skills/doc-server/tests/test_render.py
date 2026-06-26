@@ -95,6 +95,22 @@ class TestRender(unittest.TestCase):
         self.assertIn('href="/repo/main/docs__a.html#usage"', html)  # TOC anchor link
         self.assertIn("/_assets/mermaid.min.js", html)       # local mermaid asset
 
+    def test_branch_index_card_is_not_a_nested_anchor(self):
+        # The summary card holds TOC section links, so it must NOT itself be an
+        # <a>: nesting <a> in <a> is invalid HTML and the browser force-closes the
+        # outer anchor, spilling the TOC + "Open document" out of the card grid.
+        docs = [{
+            "flat": "docs__a.html",
+            "rel": "docs/a.md",
+            "title": "A Doc",
+            "toc": [(1, "A Doc", "a-doc"), (2, "Usage", "usage")],
+        }]
+        html = sync.render_branch_index("repo", "main", docs, {"repo": ["main"]}, assets_local=True)
+        self.assertNotIn('<a class="card"', html)             # card is a <div>, not an anchor
+        self.assertIn('<div class="card">', html)
+        # The whole card stays clickable via a single "Open document" link.
+        self.assertIn('<a class="open" href="/repo/main/docs__a.html"', html)
+
     def test_doc_breadcrumb_keeps_slash_in_branch(self):
         # Branch names can contain slashes; the breadcrumb must not truncate them.
         branch = "claude/doc-server-routing-ui-osov2g"
