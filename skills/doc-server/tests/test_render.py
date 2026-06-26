@@ -95,10 +95,18 @@ class TestRender(unittest.TestCase):
         self.assertIn('href="/repo/main/docs__a.html#usage"', html)  # TOC anchor link
         self.assertIn("/_assets/mermaid.min.js", html)       # local mermaid asset
 
+    def test_doc_breadcrumb_keeps_slash_in_branch(self):
+        # Branch names can contain slashes; the breadcrumb must not truncate them.
+        branch = "claude/doc-server-routing-ui-osov2g"
+        back = f"/skills/{branch}/index.html"
+        html = sync.render_doc_html("docs/x.md", "# T", assets_local=False, back_href=back)
+        self.assertIn(branch, html)
+        self.assertIn(f'href="{back}"', html)
+
     def test_root_index_has_overview_diagram(self):
         html = sync.render_root_index({"repo": ["main", "feat/x"]}, assets_local=False)
         self.assertIn('class="mermaid"', html)
-        self.assertIn("How it works", html)
+        self.assertIn("HOW IT WORKS", html)  # redesign uses uppercase eyebrow labels
         self.assertIn('href="/repo/index.html"', html)
 
 
