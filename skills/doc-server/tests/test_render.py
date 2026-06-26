@@ -103,6 +103,22 @@ class TestRender(unittest.TestCase):
         self.assertIn(branch, html)
         self.assertIn(f'href="{back}"', html)
 
+    def test_project_branch_escaped_in_hrefs(self):
+        # Branch/repo names are attacker-influenceable (git ref-format permits
+        # " < > & '); they must be HTML-escaped in hrefs so a crafted name can't
+        # break out of the attribute and inject markup that renders on every page.
+        evil = 'x"><b>PWNED'
+        side = sync.render_sidebar({"repo": [evil]}, f"repo/{evil}")
+        root = sync.render_root_index({evil: ["main"]}, assets_local=False)
+        self.assertNotIn('"><b>PWNED', side)
+        self.assertNotIn('"><b>PWNED', root)
+        # Escaped form is present instead.
+        self.assertIn("&quot;&gt;&lt;b&gt;PWNED", side)
+        # Normal and slash-containing branches still produce working links.
+        ok = sync.render_sidebar({"skills": ["main", "feat/login"]}, "skills/main")
+        self.assertIn('href="/skills/main/index.html"', ok)
+        self.assertIn('href="/skills/feat/login/index.html"', ok)
+
     def test_root_index_has_overview_diagram(self):
         html = sync.render_root_index({"repo": ["main", "feat/x"]}, assets_local=False)
         self.assertIn('class="mermaid"', html)

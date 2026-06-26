@@ -568,7 +568,7 @@ def render_sidebar(nav, active_key: str = "") -> str:
             "<summary>"
             f'<span class="chev">{_icon("chevron", 12)}</span>'
             f'<span class="ic">{_icon("package", 14)}</span>'
-            f'<a href="/{project}/index.html">{escape(project)}</a>'
+            f'<a href="/{escape(project)}/index.html">{escape(project)}</a>'
             f'<span class="count">{n}</span>'
             "</summary>"
         )
@@ -577,7 +577,7 @@ def render_sidebar(nav, active_key: str = "") -> str:
             key = f"{project}/{branch}"
             chip_cls = "chip active" if key == active_key else "chip"
             parts.append(
-                f'<a class="{chip_cls}" href="/{project}/{branch}/index.html">'
+                f'<a class="{chip_cls}" href="/{escape(project)}/{escape(branch)}/index.html">'
                 f'<span class="ic">{_icon("branch", 13)}</span>'
                 f'<span class="bname">{escape(branch)}</span></a>'
             )
@@ -655,7 +655,7 @@ def _doc_crumbs(back_href: str, here: str) -> str:
     if len(segs) >= 1:
         project = segs[0]
         parts.append('<span class="sep">/</span>')
-        parts.append(f'<a href="/{project}/index.html">{escape(project)}</a>')
+        parts.append(f'<a href="/{escape(project)}/index.html">{escape(project)}</a>')
     if len(segs) >= 2:
         branch = "/".join(segs[1:])
         parts.append('<span class="sep">/</span>')
@@ -744,7 +744,7 @@ def render_branch_index(project: str, branch: str, docs, nav,
     crumbs = (
         f'<a href="/index.html">{_icon("home", 14)}</a>'
         '<span class="sep">/</span>'
-        f'<a href="/{project}/index.html">{escape(project)}</a>'
+        f'<a href="/{escape(project)}/index.html">{escape(project)}</a>'
         '<span class="sep">/</span>'
         f'<span class="here">{escape(branch)}</span>'
     )
@@ -908,7 +908,7 @@ def render_root_index(nav, assets_local: bool) -> str:
         for project in sorted(nav):
             n = len(nav[project])
             parts.append(
-                f'<a class="tile" href="/{project}/index.html">'
+                f'<a class="tile" href="/{escape(project)}/index.html">'
                 '<div class="tile-head">'
                 f'<span class="tile-ic">{_icon("package", 17)}</span>'
                 f'<div class="grow"><div class="name">{escape(project)}</div>'
