@@ -1250,11 +1250,6 @@ def write_root_index(home: Path, nav=None) -> None:
 
 
 def sync_all(home: Path) -> None:
-    # Ensure our own assets exist even if ensure_assets wasn't called (daemon path).
-    assets_dir = home / "_assets"
-    if assets_dir.is_dir():
-        _atomic_write_text(assets_dir / "render.js", RENDER_JS)
-        _atomic_write_text(assets_dir / "landing.js", LANDING_JS)
     with _SYNC_LOCK:
         reg = state.read_registry()
         nav = build_nav(reg)
