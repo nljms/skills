@@ -16,16 +16,39 @@ accumulated history of plans and specs — including ones from unrelated past wo
 A worktree on `feat/login` sees the same doc pile as every other branch, so its
 own current task is buried in noise.
 
-The goal: a worktree page should foreground the **single context document** the
-agent maintains for its current task, and demote the accumulated plans/specs so
-they no longer compete. The global sidebar — which lists every project and
-worktree — stays exactly as it is.
+The goal: a worktree page should show **only the docs this worktree introduced**
+(relative to its source branch), foreground the **single context document** the
+agent maintains for its current task, and hide the accumulated plans/specs that
+already live on the source branch. The global sidebar — which lists every project
+and worktree — stays exactly as it is.
 
 ## The solution
 
-Turn the existing "summary doc → lead panel" promotion into the organizing
-principle of the branch page, and let the agent explicitly designate which doc is
-the context doc.
+Two filters working together:
+
+1. **Doc set** — restrict the worktree's docs to those *added on this worktree*
+   relative to its source branch (committed and uncommitted alike). Docs that
+   already exist on the source branch are not shown at all.
+2. **Promotion** — within that set, promote the agent-designated context doc to a
+   lead panel and demote the rest into a collapsed section.
+
+### 0. Doc set = docs this worktree introduced
+
+A doc is "this worktree's" if it does **not** exist on the source branch:
+
+- **Source branch resolution** — prefer the branch's tracked upstream
+  (`git rev-parse --abbrev-ref @{upstream}`); fall back to the git fork-point
+  against the repo default branch (`git merge-base --fork-point`), then a plain
+  `merge-base` against the default branch.
+- **Added & committed** — new files in `git diff --diff-filter=A <base>...HEAD`,
+  filtered to the docs glob.
+- **Added & uncommitted** — untracked / newly-staged files from
+  `git status --porcelain`, filtered to the docs glob.
+- The union of those two sets is what the branch page renders.
+
+**Fallbacks:** if no source branch can be resolved (e.g. the worktree *is* the
+default branch, or it's not a git repo / has no fork-point), the page renders the
+full docs glob as it does today — no regression for the main checkout.
 
 ### 1. Designating the context doc
 
@@ -57,11 +80,14 @@ as aliases so existing setups keep working.
   rendered to its own HTML page).
 - The auto code-scan (overview / architecture / external services) stays in the
   lead area — it is compact project context, not doc-pile noise.
-- The remaining docs (plans, specs, everything else) are demoted into a collapsed
-  `<details>` titled **"Other documents (N)"**, together with the structure map.
+- The remaining **worktree-added** docs are demoted into a collapsed `<details>`
+  titled **"Other documents (N)"**, together with the structure map. Docs that
+  live on the source branch never appear here — they're filtered out upstream.
 
-**Demotion rule:** demotion only applies when a context doc exists. A branch with
-no context doc renders exactly as it does today — no regression.
+**Demotion rule:** demotion only applies when a context doc exists *and* the
+worktree-added doc set is non-empty. When the doc set falls back to the full glob
+(default branch / no fork-point), the page renders exactly as it does today — no
+regression.
 
 ### 3. Global sidebar
 
@@ -79,9 +105,10 @@ flowchart LR
     A1 --> A5[DOCUMENTS grid:<br/>all committed plans/specs]
   end
   subgraph After
-    B1[branch page] --> B2[CONTEXT doc - led]
+    B0["doc set = docs added on this<br/>worktree vs source branch"] --> B1[branch page]
+    B1 --> B2[CONTEXT doc - led]
     B1 --> B3[code-scan]
-    B1 --> B4["▾ Other documents (collapsed):<br/>STRUCTURE map + doc cards"]
+    B1 --> B4["▾ Other documents (collapsed):<br/>STRUCTURE map + worktree-added cards"]
   end
 ```
 
@@ -89,27 +116,37 @@ flowchart LR
 
 Changes, roughly in dependency order:
 
-1. **`state.py`** — `register_target` accepts and persists an optional `context`
+1. **Source-branch resolution + worktree-doc filter** — a helper (in `identity.py`
+   or a small `gitscope.py`) that resolves the source branch (upstream →
+   fork-point → default-branch merge-base) and returns the set of worktree-added
+   doc paths (committed `--diff-filter=A` ∪ untracked from `git status`). Returns
+   `None` when no source branch resolves, signalling "show all".
+2. **`state.py`** — `register_target` accepts and persists an optional `context`
    path on the registry entry.
-2. **`serve.py` / `app.py`** — add `--context <path>` flag, thread it through
+3. **`serve.py` / `app.py`** — add `--context <path>` flag, thread it through
    `bring_up` into `register_target`.
-3. **`sync.py`**
+4. **`sync.py`**
+   - In `sync_target`, filter `find_docs` through the worktree-doc set (skip the
+     filter when it returns `None`).
    - Rename `is_summary_doc` → `is_context_doc`; check the registry-designated
      path first, then `worktree_context: true`, then the legacy
      `worktree-summary.md` / `worktree_summary: true` aliases.
    - In `render_branch_index`, when a context doc exists: keep the lead panel +
      code-scan up top, and wrap STRUCTURE + DOCUMENTS in a collapsed
      "Other documents (N)" `<details>`. When none exists, render as today.
-4. **`SKILL.md` + session-start hook** — nudge the agent to write the structured
+5. **`SKILL.md` + session-start hook** — nudge the agent to write the structured
    context doc (context summary → solution → before/after flowchart → plans) and
    pass `--context`.
-5. **Tests** — cover context-doc resolution order and the demotion rule
-   (present vs. absent).
+6. **Tests** — cover source-branch resolution + the doc filter (added/untracked
+   vs. source-branch docs, plus the show-all fallback), context-doc resolution
+   order, and the demotion rule.
 
 ## Out of scope
 
 - Per-request "which worktree am I" detection — the URL/branch already identifies
   it; no new server-side request scoping needed.
 - Changing the global sidebar or root/project landing pages.
-- Filtering docs by git diff or dedicated folders (considered and dropped in favor
-  of the agent-maintained context doc).
+- Showing *modified* (vs. newly-added) docs as worktree docs — only files that do
+  not exist on the source branch count; edits to source-branch docs stay hidden.
+- A dedicated-folder convention for worktree docs (considered and dropped in favor
+  of the git-diff doc set plus the agent-maintained context doc).
