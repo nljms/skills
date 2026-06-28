@@ -34,6 +34,24 @@ class TestSync(unittest.TestCase):
         self.assertTrue((self.home / "repo" / "main" / "docs__a.html").exists())
         self.assertTrue((self.home / "repo" / "main" / "index.html").exists())
 
+    def test_clear_generated_wipes_output_but_keeps_reserved(self):
+        # Generated output (from a sync) plus reserved bookkeeping/assets.
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
+        (self.home / "_assets").mkdir(exist_ok=True)
+        (self.home / "_assets" / "marked.min.js").write_text("x", encoding="utf-8")
+        (self.home / "state.json").write_text("{}", encoding="utf-8")
+        (self.home / "registry.json").write_text("{}", encoding="utf-8")
+
+        self.sync.clear_generated(self.home)
+
+        self.assertFalse((self.home / "repo").exists())
+        self.assertTrue((self.home / "_assets" / "marked.min.js").exists())
+        self.assertTrue((self.home / "state.json").exists())
+        self.assertTrue((self.home / "registry.json").exists())
+
+    def test_clear_generated_is_safe_when_empty(self):
+        self.sync.clear_generated(self.home)  # no raise
+
     def test_sync_target_removes_stale_docs(self):
         self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
         os.remove(os.path.join(self._src.name, "docs", "a.md"))

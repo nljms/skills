@@ -43,7 +43,7 @@ class TestHandler(unittest.TestCase):
         sync.sync_all(self.home)
 
         self.port = _free_port()
-        self.httpd = server.make_server(self.home, self.port)
+        self.httpd = server.make_server(self.home, self.port, version="testver")
         self.t = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.t.start()
         for _ in range(40):
@@ -59,9 +59,17 @@ class TestHandler(unittest.TestCase):
         os.environ.pop("DOC_SERVER_HOME", None)
         os.environ.pop("DOC_SERVER_NO_FETCH", None)
 
-    def test_health_marker(self):
+    def test_health_marker_includes_version(self):
         body = _get(self.port, self.server.HEALTH_PATH)
-        self.assertEqual(json.loads(body), {"doc_server": True})
+        data = json.loads(body)
+        self.assertIs(data["doc_server"], True)
+        self.assertEqual(data["version"], "testver")
+
+    def test_probe_version_reads_running_version(self):
+        self.assertEqual(self.server.probe_version(self.port), "testver")
+
+    def test_probe_version_none_when_nothing_listening(self):
+        self.assertIsNone(self.server.probe_version(_free_port()))
 
     def test_response_includes_csp_header(self):
         with urllib.request.urlopen(

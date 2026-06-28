@@ -40,6 +40,27 @@ def set_remembered_port(port: int) -> None:
     _write_json(_state_file(), data)
 
 
+def get_code_version():
+    return _read_json(_state_file(), {}).get("code_version")
+
+
+def set_code_version(version: str) -> None:
+    data = _read_json(_state_file(), {})
+    data["code_version"] = version
+    _write_json(_state_file(), data)
+
+
+def get_daemon_pid():
+    pid = _read_json(_state_file(), {}).get("daemon_pid")
+    return int(pid) if isinstance(pid, int) else None
+
+
+def set_daemon_pid(pid: int) -> None:
+    data = _read_json(_state_file(), {})
+    data["daemon_pid"] = int(pid)
+    _write_json(_state_file(), data)
+
+
 def read_registry() -> dict:
     return _read_json(_registry_file(), {})
 

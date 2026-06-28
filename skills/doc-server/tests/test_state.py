@@ -28,6 +28,24 @@ class TestState(unittest.TestCase):
         self.state.set_remembered_port(8912)
         self.assertEqual(self.state.get_remembered_port(), 8912)
 
+    def test_code_version_round_trips(self):
+        self.assertIsNone(self.state.get_code_version())
+        self.state.set_code_version("abc123")
+        self.assertEqual(self.state.get_code_version(), "abc123")
+
+    def test_daemon_pid_round_trips(self):
+        self.assertIsNone(self.state.get_daemon_pid())
+        self.state.set_daemon_pid(4242)
+        self.assertEqual(self.state.get_daemon_pid(), 4242)
+
+    def test_state_keys_are_independent(self):
+        self.state.set_remembered_port(8911)
+        self.state.set_code_version("v")
+        self.state.set_daemon_pid(7)
+        self.assertEqual(self.state.get_remembered_port(), 8911)
+        self.assertEqual(self.state.get_code_version(), "v")
+        self.assertEqual(self.state.get_daemon_pid(), 7)
+
     def test_register_target(self):
         self.state.register_target("repo/main", "/abs/repo", "docs/**/*.md")
         reg = self.state.read_registry()

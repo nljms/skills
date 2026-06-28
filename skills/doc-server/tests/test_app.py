@@ -25,7 +25,7 @@ class TestApp(unittest.TestCase):
         self._src = tempfile.TemporaryDirectory()
         os.environ["DOC_SERVER_HOME"] = self._home.name
         os.environ["DOC_SERVER_NO_FETCH"] = "1"
-        from docserver import server, state, app
+        from docserver import server, state, app, version
         self.server = server
         self.state = state
         self.app = app
@@ -33,9 +33,10 @@ class TestApp(unittest.TestCase):
         os.makedirs(os.path.join(self._src.name, "docs"))
         Path(self._src.name, "docs", "a.md").write_text("# A", encoding="utf-8")
 
-        # Start a real doc-server on a known port so bring_up reuses it.
+        # Start a real doc-server on a known port (advertising the current code
+        # version) so bring_up reuses it instead of restarting.
         self.port = _free_port()
-        self.httpd = server.make_server(self.home, self.port)
+        self.httpd = server.make_server(self.home, self.port, version=version.code_version())
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         for _ in range(40):
             if server.probe_health(self.port):
