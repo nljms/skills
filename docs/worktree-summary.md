@@ -51,4 +51,5 @@ flowchart LR
 
 - **Spec:** [`docs/superpowers/specs/2026-06-28-worktree-scoped-docs-design.md`](superpowers/specs/2026-06-28-worktree-scoped-docs-design.md) — approved.
 - **Implementation plan:** [`docs/superpowers/plans/2026-06-28-worktree-scoped-docs.md`](superpowers/plans/2026-06-28-worktree-scoped-docs.md) — 8 TDD tasks: `gitscope.py` → registry `context` → `--context` flag → doc filter → `is_context_doc` → context-first layout → SKILL/hook → full suite.
-- **Status:** spec + plan committed; awaiting choice of execution mode (subagent-driven vs. inline). No implementation code written yet.
+- **Status:** implemented and reviewed. All 8 plan tasks done via subagent-driven development (TDD); full suite green (14/14); whole-branch review passed after fixing one Critical (pushed-branch base resolution) and aligning the doc filter to the spec's modified-doc exclusion. Manual smoke check confirms the branch page leads with CONTEXT and hides pre-branch docs.
+- **Operational note:** a long-running doc-server daemon must be restarted to pick up code changes (Python doesn't hot-reload); the daemon re-syncs content on each request but not its own logic.
