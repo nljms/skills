@@ -81,5 +81,17 @@ class TestSync(unittest.TestCase):
         self.assertIn("repo/index.html", root_index)
 
 
+    def test_is_context_doc_registry_path(self):
+        self.assertTrue(self.sync.is_context_doc("docs/x.md", {}, "docs/x.md"))
+        self.assertFalse(self.sync.is_context_doc("docs/y.md", {}, "docs/x.md"))
+
+    def test_is_context_doc_frontmatter(self):
+        self.assertTrue(self.sync.is_context_doc("docs/x.md", {"worktree_context": True}))
+
+    def test_is_context_doc_legacy_aliases(self):
+        self.assertTrue(self.sync.is_context_doc("docs/worktree-summary.md", {}))
+        self.assertTrue(self.sync.is_context_doc("docs/x.md", {"worktree_summary": True}))
+
+
 if __name__ == "__main__":
     unittest.main()
