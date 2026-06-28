@@ -71,11 +71,10 @@ def summary_nudge(cwd: str, url=None):
         return None
     where = f" (served at {url})" if url else ""
     return (
-        f"This worktree (branch '{branch}') has no worktree summary yet. Consider "
-        "writing docs/worktree-summary.md — a short narrative of what this worktree "
-        "is working on (feature / bugfix / debug / research), ideally with an "
-        "end-to-end Mermaid diagram of the problem and context. doc-server promotes "
-        f"it to the lead panel of the branch page{where}."
+        "Write docs/worktree-context.md — a short context doc for this worktree "
+        "(context summary → solution → before/after Mermaid flow → plans) and "
+        "serve it with --context docs/worktree-context.md so the branch page "
+        "leads with it."
     )
 
 

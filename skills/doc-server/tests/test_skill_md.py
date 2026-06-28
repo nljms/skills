@@ -16,6 +16,12 @@ class TestSkillMd(unittest.TestCase):
         for kw in ("serve.py", "worktree", "docs", "html"):
             self.assertIn(kw, lower)
 
+    def test_skill_documents_context_flag(self):
+        with open(SKILL_MD) as f:
+            text = f.read()
+        self.assertIn("--context", text)
+        self.assertIn("worktree_context", text)
+
 
 if __name__ == "__main__":
     unittest.main()

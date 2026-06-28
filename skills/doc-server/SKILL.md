@@ -51,6 +51,16 @@ python3 <skill-dir>/serve.py --docs "docs/**/*.md"
   If the chosen port is taken by another process, the next free port is used and
   remembered.
 - `--open` also opens the URL in the default browser.
+- `--context <path>` designates the worktree's **lead context document** (path
+  relative to the repo root). On a worktree, the branch page leads with this doc
+  and shows only the docs this worktree added relative to its source branch;
+  everything else is demoted into a collapsed "Other documents" section. If you
+  do not pass `--context`, a doc with frontmatter `worktree_context: true` (or the
+  legacy `worktree-summary.md` / `worktree_summary: true`) is used instead.
+
+  The context doc should follow: context summary → solution → before/after flow
+  (a Mermaid flowchart) → plans related to the context. Update it as the work
+  evolves; the server re-syncs on refresh.
 
 The server re-syncs on every page load, so edits to the docs show up on refresh.
 
