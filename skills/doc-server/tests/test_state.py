@@ -43,6 +43,12 @@ class TestState(unittest.TestCase):
         self.state.register_target("repo/main", "/abs/repo", "docs/**/*.md")
         self.assertNotIn("context", self.state.read_registry()["repo/main"])
 
+    def test_context_summary_path(self):
+        from pathlib import Path
+        home = self.state.doc_server_home()
+        p = self.state.context_summary_path(home, "repo/feat")
+        self.assertEqual(p, Path(home) / "_context" / "repo" / "feat" / "worktree-summary.md")
+
 
 if __name__ == "__main__":
     unittest.main()
