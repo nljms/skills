@@ -62,6 +62,16 @@ class TestGitscope(unittest.TestCase):
         added = gitscope.worktree_added_docs(self.root)
         self.assertNotIn("docs/base.md", added)
 
+    def test_modified_base_doc_excluded(self):
+        # on a feature branch, modify existing docs/base.md (from main) WITHOUT committing
+        _run(["git", "checkout", "-b", "feat"], self.root)
+        Path(self.root, "docs", "base.md").write_text("# base modified", encoding="utf-8")
+        added = gitscope.worktree_added_docs(self.root)
+        # modified docs that exist on source branch should NOT appear in the added set
+        self.assertNotIn("docs/base.md", added)
+        # also verify it's empty or doesn't contain base.md (should be empty if no new files)
+        self.assertEqual(added, set())
+
 
 if __name__ == "__main__":
     unittest.main()

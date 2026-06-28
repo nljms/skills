@@ -82,6 +82,6 @@ def worktree_added_docs(source_root):
     if status:
         for line in status.splitlines():
             code, _, path = line[:2], line[2], line[3:].strip()
-            if code in ("??", "A ", "AM", "M ", " M") and _is_doc(path):
+            if code in ("??", "A ", "AM") and _is_doc(path):
                 added.add(path)
     return added
