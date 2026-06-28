@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from . import identity, server, state, sync
 
@@ -6,6 +7,14 @@ from . import identity, server, state, sync
 def _env_port():
     val = os.environ.get("DOC_SERVER_PORT")
     return int(val) if val and val.isdigit() else None
+
+
+def summary_path(cwd: str):
+    home = state.doc_server_home()
+    ident = identity.resolve_identity(cwd)
+    p = state.context_summary_path(home, ident.key)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 def bring_up(cwd: str, glob: str, port=None, open_browser: bool = False,
