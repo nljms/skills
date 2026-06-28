@@ -108,7 +108,7 @@ class TestSync(unittest.TestCase):
 
     def test_external_summary_beats_in_repo_context(self):
         # An in-repo doc designated via --context must NOT win over the external file.
-        from pathlib import Path
+        Path(self._src.name, "docs").mkdir(parents=True, exist_ok=True)
         Path(self._src.name, "docs", "spec.md").write_text("# Spec doc\n\nspec lede.\n", encoding="utf-8")
         ext = self.state.context_summary_path(self.home, "repo/main")
         ext.parent.mkdir(parents=True, exist_ok=True)
@@ -117,8 +117,11 @@ class TestSync(unittest.TestCase):
         self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB,
                               context="docs/spec.md")
         index = (self.home / "repo" / "main" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("External wins", index)
-        self.assertNotIn("Spec doc", index.split("Other documents")[0])  # spec not in the lead panel
+        self.assertIn("External wins", index)            # external title rendered
+        self.assertIn("Other documents", index)          # the demoted section exists (split point is valid)
+        lead = index.split("Other documents")[0]
+        self.assertIn("worktree-summary.html", lead)     # the external file is the lead context
+        self.assertNotIn("Spec doc", lead)               # the --context spec was NOT promoted to lead
 
     def test_is_context_doc_registry_path(self):
         self.assertTrue(self.sync.is_context_doc("docs/x.md", {}, "docs/x.md"))
