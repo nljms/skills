@@ -69,7 +69,6 @@ def summary_nudge(cwd: str, url=None):
         return None
     if _has_summary(os.path.join(cwd, "docs")):
         return None
-    where = f" (served at {url})" if url else ""
     return (
         "Write this worktree's context summary OUTSIDE the repo: run "
         "`serve.py --summary-path` to get the path "

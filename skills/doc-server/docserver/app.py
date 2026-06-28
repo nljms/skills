@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from . import identity, server, state, sync
 
