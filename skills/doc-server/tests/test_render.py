@@ -206,11 +206,14 @@ class TestRender(unittest.TestCase):
         self.assertIn("CONTEXT", html)
         self.assertIn("Other documents", html)
         self.assertIn("<details", html)
+        self.assertIn("P", html)  # demoted doc card is still present
 
     def test_branch_index_no_context_has_no_details(self):
         docs = [{"flat": "docs__p.html", "rel": "docs/p.md", "title": "P", "toc": []}]
         html = sync.render_branch_index("r", "feat", docs, {"r": ["feat"]}, False)
         self.assertNotIn("Other documents", html)
+        self.assertIn("STRUCTURE", html)  # inline sections still present
+        self.assertIn("DOCUMENTS", html)
 
 
 if __name__ == "__main__":
