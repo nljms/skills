@@ -60,6 +60,12 @@ class TestApp(unittest.TestCase):
         with urllib.request.urlopen(result["url"] + "index.html", timeout=2) as r:
             self.assertEqual(r.status, 200)
 
+    def test_bring_up_registers_context(self):
+        self.app.bring_up(self._src.name, "docs/**/*.md", context="docs/worktree-context.md")
+        reg = self.state.read_registry()
+        entry = next(iter(reg.values()))
+        self.assertEqual(entry["context"], "docs/worktree-context.md")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,10 +8,11 @@ def _env_port():
     return int(val) if val and val.isdigit() else None
 
 
-def bring_up(cwd: str, glob: str, port=None, open_browser: bool = False) -> dict:
+def bring_up(cwd: str, glob: str, port=None, open_browser: bool = False,
+             context: str = None) -> dict:
     home = state.doc_server_home()
     ident = identity.resolve_identity(cwd)
-    state.register_target(ident.key, ident.source_root, glob)
+    state.register_target(ident.key, ident.source_root, glob, context=context)
     sync.ensure_assets(home)
 
     preferred = port or _env_port() or state.get_remembered_port() or 8910

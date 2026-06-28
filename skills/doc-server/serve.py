@@ -14,6 +14,8 @@ def main(argv=None):
     parser.add_argument("--docs", default="docs/**/*.md", help="glob of docs to serve")
     parser.add_argument("--port", type=int, default=None, help="preferred port")
     parser.add_argument("--open", action="store_true", help="open the browser")
+    parser.add_argument("--context", default=None,
+                        help="path (relative to repo root) of the worktree's lead context doc")
     parser.add_argument(
         "--migrate", action="store_true",
         help="migrate an existing doc-server home to the <project>/<branch> layout, then exit",
@@ -32,7 +34,8 @@ def main(argv=None):
         server.run_server_forever(state.doc_server_home(), args.port)
         return
 
-    result = app.bring_up(os.getcwd(), args.docs, port=args.port, open_browser=args.open)
+    result = app.bring_up(os.getcwd(), args.docs, port=args.port, open_browser=args.open,
+                          context=args.context)
     print(result["url"])
 
 
