@@ -72,6 +72,28 @@ class TestGitscope(unittest.TestCase):
         # also verify it's empty or doesn't contain base.md (should be empty if no new files)
         self.assertEqual(added, set())
 
+    def test_pushed_branch_uses_forkpoint(self):
+        """When upstream==HEAD (branch fully pushed), fall back to fork-point base.
+
+        Simulate a fully-pushed feature branch by making @{upstream} resolve to a
+        ref that points at the same commit as HEAD, then assert that the added doc
+        is still returned (not empty, which would happen if HEAD...HEAD is used).
+        """
+        _run(["git", "checkout", "-b", "feat"], self.root)
+        Path(self.root, "docs", "new.md").write_text("# new", encoding="utf-8")
+        _run(["git", "add", "."], self.root)
+        _run(["git", "commit", "-m", "add new"], self.root)
+        # Create a local "remote-tracking" branch at the same commit and wire it
+        # as the upstream so @{upstream} == HEAD.
+        _run(["git", "branch", "feat-remote"], self.root)
+        _run(["git", "config", "branch.feat.remote", "."], self.root)
+        _run(["git", "config", "branch.feat.merge", "refs/heads/feat-remote"], self.root)
+        # With the bug, merge-base HEAD @{upstream} == HEAD is returned first and
+        # the diff HEAD...HEAD is empty → worktree_added_docs returns set().
+        # With the fix, the fork-point / merge-base against main is used instead.
+        added = gitscope.worktree_added_docs(self.root)
+        self.assertEqual(added, {"docs/new.md"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -486,7 +486,7 @@ def is_context_doc(rel: str, meta: dict, context_path: str = None) -> bool:
     """The worktree's lead context doc: the registry-designated path, or
     frontmatter ``worktree_context: true``, or the legacy worktree-summary
     name / ``worktree_summary: true`` aliases."""
-    if context_path and rel == context_path:
+    if context_path and Path(context_path).as_posix() == rel:
         return True
     if meta.get("worktree_context"):
         return True

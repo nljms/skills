@@ -26,6 +26,8 @@ def _default_branch(cwd):
     if head and "/" in head:
         return head  # e.g. "origin/main"
     for cand in ("main", "master"):
+        # _git returns None on a nonzero exit (ref absent), so `is not None`
+        # correctly accepts an empty-string result while rejecting missing refs.
         if _git(["rev-parse", "--verify", "--quiet", cand], cwd) is not None:
             return cand
     return None
@@ -47,10 +49,14 @@ def source_branch_base(source_root):
     if default:
         candidates.append(_git(["merge-base", "--fork-point", default, "HEAD"], source_root))
         candidates.append(_git(["merge-base", default, "HEAD"], source_root))
+    candidates = [c for c in candidates if c]
+    # Prefer a base that differs from HEAD (genuine divergence from the source
+    # branch). Only when no candidate diverges do we fall back to HEAD itself,
+    # so an undiverged feature branch still surfaces its untracked WIP docs.
     for base in candidates:
-        if base:
+        if base != head:
             return base
-    return None
+    return head if candidates else None
 
 
 def _is_doc(path):
