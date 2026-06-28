@@ -1249,6 +1249,28 @@ def write_root_index(home: Path, nav=None) -> None:
     _atomic_write_text(home / "index.html", render_root_index(nav, local))
 
 
+# Bookkeeping + downloaded/regenerated assets — never part of the disposable
+# per-branch HTML cache.
+_RESERVED = {"_assets", "state.json", "registry.json"}
+
+
+def clear_generated(home: Path) -> None:
+    """Drop the generated HTML cache (per-project/branch dirs + .inspect.json),
+    leaving the registry, state, and downloaded assets in place. Used when the
+    skill code changes so the next sync rebuilds everything from current code."""
+    import shutil
+    for entry in home.iterdir():
+        if entry.name in _RESERVED:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            try:
+                entry.unlink()
+            except OSError:
+                pass
+
+
 def sync_all(home: Path) -> None:
     with _SYNC_LOCK:
         reg = state.read_registry()

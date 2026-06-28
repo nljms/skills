@@ -98,6 +98,22 @@ write `docs/worktree-summary.md` — a short narrative of what the worktree is
 working on (feature / bugfix / debug / research) with an end-to-end Mermaid diagram
 of the problem and context, which the branch page then promotes to its lead panel.
 
+## Updating the skill
+
+The shared server runs as a long-lived daemon, so a plain edit to the skill code
+would otherwise keep serving the old version from memory. To avoid that, every
+`serve.py` / SessionStart run fingerprints the skill's runtime source
+(`docserver/*.py` + `serve.py`) and the daemon advertises that fingerprint on its
+health endpoint. When the fingerprint changes, the next run automatically:
+
+1. stops the running daemon (recorded PID, then the port frees),
+2. clears the generated HTML cache (the per-`<project>/<branch>` directories and
+   `.inspect.json`), keeping the registry, remembered port, and downloaded assets,
+3. starts a fresh daemon on the same port running the updated code.
+
+No manual restart is needed — just edit the skill and open a new session (or rerun
+`serve.py`). The cache is disposable and rebuilt on the first page load.
+
 ## Notes
 
 - **Code scan.** The overview / architecture / external-services block is detected
