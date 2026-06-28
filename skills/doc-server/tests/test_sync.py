@@ -17,11 +17,13 @@ class TestSync(unittest.TestCase):
         self.sync = sync
         self.state = state
         self.home = Path(self._home.name)
+        self._orig_worktree_added_docs = sync.gitscope.worktree_added_docs
         os.makedirs(os.path.join(self._src.name, "docs", "sub"))
         Path(self._src.name, "docs", "a.md").write_text("# A", encoding="utf-8")
         Path(self._src.name, "docs", "sub", "b.md").write_text("# B", encoding="utf-8")
 
     def tearDown(self):
+        self.sync.gitscope.worktree_added_docs = self._orig_worktree_added_docs
         self._home.cleanup()
         self._src.cleanup()
         os.environ.pop("DOC_SERVER_HOME", None)
@@ -51,6 +53,22 @@ class TestSync(unittest.TestCase):
         self.assertTrue(kept.exists(), "kept file should still exist after second sync")
         # Stale file should be gone.
         self.assertFalse((self.home / "repo" / "main" / "docs__a.html").exists())
+
+    def test_sync_target_filters_to_added_docs(self):
+        # Monkeypatch the git scope so the test stays filesystem-only.
+        self.sync.gitscope.worktree_added_docs = lambda root: {"docs/a.md"}
+        names = self.sync.sync_target(self.home, "repo/feat", self._src.name,
+                                      self.sync.DEFAULT_GLOB)
+        flat = sorted(n for n, _ in names)
+        self.assertEqual(flat, ["docs__a.html"])
+        self.assertFalse((self.home / "repo" / "feat" / "docs__sub__b.html").exists())
+
+    def test_sync_target_none_shows_all(self):
+        self.sync.gitscope.worktree_added_docs = lambda root: None
+        names = self.sync.sync_target(self.home, "repo/main", self._src.name,
+                                      self.sync.DEFAULT_GLOB)
+        flat = sorted(n for n, _ in names)
+        self.assertEqual(flat, ["docs__a.html", "docs__sub__b.html"])
 
     def test_sync_all_builds_project_and_root_indexes(self):
         self.state.register_target("repo/main", self._src.name, self.sync.DEFAULT_GLOB)

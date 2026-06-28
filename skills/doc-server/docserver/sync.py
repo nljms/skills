@@ -6,7 +6,7 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
-from . import inspect, state
+from . import gitscope, inspect, state
 
 _SYNC_LOCK = threading.Lock()
 
@@ -1167,7 +1167,7 @@ def build_nav(reg) -> dict:
     return nav
 
 
-def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
+def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None, context=None):
     project, _, branch = key.partition("/")
     if nav is None:
         nav = build_nav(state.read_registry())
@@ -1186,8 +1186,11 @@ def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
     docs_meta = []
     summary = None
     current_flats: set = set()
+    added = gitscope.worktree_added_docs(source_root)
     for md in find_docs(source_root, glob):
         rel = md.relative_to(source_root)
+        if added is not None and rel.as_posix() not in added:
+            continue
         flat = _flatten(rel)
         current_flats.add(flat)
         text = md.read_text(encoding="utf-8", errors="replace")
@@ -1254,7 +1257,8 @@ def sync_all(home: Path) -> None:
         reg = state.read_registry()
         nav = build_nav(reg)
         for key, info in reg.items():
-            sync_target(home, key, info["source_root"], info["glob"], nav=nav)
+            sync_target(home, key, info["source_root"], info["glob"],
+                        nav=nav, context=info.get("context"))
         for project in sorted(nav):
             write_project_index(home, project, nav=nav)
         write_root_index(home, nav=nav)
