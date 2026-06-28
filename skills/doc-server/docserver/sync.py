@@ -1222,6 +1222,24 @@ def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None, con
     docs_meta = []
     context_doc = None
     current_flats: set = set()
+    # An external worktree summary (outside the repo) is the highest-priority
+    # lead context. Render it and short-circuit in-repo context detection.
+    ext_summary = state.context_summary_path(home, key)
+    if ext_summary.exists():
+        ext_text = ext_summary.read_text(encoding="utf-8", errors="replace")
+        _, ext_body = split_frontmatter(ext_text)
+        _atomic_write_text(
+            dest / "worktree-summary.html",
+            render_doc_html("worktree-summary.md", ext_body, local,
+                            back_href=back_href, sidebar_html=sidebar),
+        )
+        current_flats.add("worktree-summary.html")
+        context_doc = {
+            "title": doc_title(ext_body, "worktree-summary.md"),
+            "lede": _first_paragraph(ext_body),
+            "mermaid": _first_mermaid(ext_body),
+            "href": f"/{key}/worktree-summary.html",
+        }
     added = gitscope.worktree_added_docs(source_root)
     for md in find_docs(source_root, glob):
         rel = md.relative_to(source_root)

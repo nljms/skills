@@ -81,6 +81,45 @@ class TestSync(unittest.TestCase):
         self.assertIn("repo/index.html", root_index)
 
 
+    def test_external_summary_is_lead_context(self):
+        # Seed an external summary for repo/main.
+        ext = self.state.context_summary_path(self.home, "repo/main")
+        ext.parent.mkdir(parents=True, exist_ok=True)
+        ext.write_text("# My Worktree\n\nDoing the thing.\n", encoding="utf-8")
+        # No worktree filter for this non-git source.
+        self.sync.gitscope.worktree_added_docs = lambda root: None
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
+        dest = self.home / "repo" / "main"
+        self.assertTrue((dest / "worktree-summary.html").exists())
+        index = (dest / "index.html").read_text(encoding="utf-8")
+        self.assertIn("CONTEXT", index)
+        self.assertIn("My Worktree", index)
+        self.assertIn("Read full context", index)
+
+    def test_external_summary_survives_cleanup(self):
+        ext = self.state.context_summary_path(self.home, "repo/main")
+        ext.parent.mkdir(parents=True, exist_ok=True)
+        ext.write_text("# Ext\n\nlede.\n", encoding="utf-8")
+        self.sync.gitscope.worktree_added_docs = lambda root: None
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
+        # Second sync must keep the rendered summary, not unlink it.
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB)
+        self.assertTrue((self.home / "repo" / "main" / "worktree-summary.html").exists())
+
+    def test_external_summary_beats_in_repo_context(self):
+        # An in-repo doc designated via --context must NOT win over the external file.
+        from pathlib import Path
+        Path(self._src.name, "docs", "spec.md").write_text("# Spec doc\n\nspec lede.\n", encoding="utf-8")
+        ext = self.state.context_summary_path(self.home, "repo/main")
+        ext.parent.mkdir(parents=True, exist_ok=True)
+        ext.write_text("# External wins\n\next lede.\n", encoding="utf-8")
+        self.sync.gitscope.worktree_added_docs = lambda root: None
+        self.sync.sync_target(self.home, "repo/main", self._src.name, self.sync.DEFAULT_GLOB,
+                              context="docs/spec.md")
+        index = (self.home / "repo" / "main" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("External wins", index)
+        self.assertNotIn("Spec doc", index.split("Other documents")[0])  # spec not in the lead panel
+
     def test_is_context_doc_registry_path(self):
         self.assertTrue(self.sync.is_context_doc("docs/x.md", {}, "docs/x.md"))
         self.assertFalse(self.sync.is_context_doc("docs/y.md", {}, "docs/x.md"))
