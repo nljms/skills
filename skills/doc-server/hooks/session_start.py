@@ -71,10 +71,11 @@ def summary_nudge(cwd: str, url=None):
         return None
     where = f" (served at {url})" if url else ""
     return (
-        "Write docs/worktree-context.md — a short context doc for this worktree "
-        "(context summary → solution → before/after Mermaid flow → plans) and "
-        "serve it with --context docs/worktree-context.md so the branch page "
-        "leads with it."
+        "Write this worktree's context summary OUTSIDE the repo: run "
+        "`serve.py --summary-path` to get the path "
+        "(~/.claude/doc-server/_context/<project>/<branch>/worktree-summary.md) "
+        "and write it there (context summary → solution → before/after Mermaid "
+        "flow → plans). The server renders it as the lead context."
     )
 
 

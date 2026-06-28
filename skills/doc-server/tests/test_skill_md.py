@@ -22,6 +22,12 @@ class TestSkillMd(unittest.TestCase):
         self.assertIn("--context", text)
         self.assertIn("worktree_context", text)
 
+    def test_skill_documents_summary_path(self):
+        with open(SKILL_MD) as f:
+            text = f.read()
+        self.assertIn("--summary-path", text)
+        self.assertIn("_context", text)
+
 
 if __name__ == "__main__":
     unittest.main()

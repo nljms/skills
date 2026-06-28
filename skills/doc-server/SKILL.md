@@ -62,6 +62,13 @@ python3 <skill-dir>/serve.py --docs "docs/**/*.md"
   (a Mermaid flowchart) → plans related to the context. Update it as the work
   evolves; the server re-syncs on refresh.
 
+- `--summary-path` prints the external worktree-summary path for the current
+  project/branch — `~/.claude/doc-server/_context/<project>/<branch>/worktree-summary.md`
+  — creating its directory if needed, then exits. Write the worktree's context
+  doc THERE (not in the repo), following: context summary → solution →
+  before/after Mermaid flow → plans. The server renders it as the lead CONTEXT
+  panel. Keeping it outside the repo keeps the project branch clean.
+
 The server re-syncs on every page load, so edits to the docs show up on refresh.
 
 ## Migrating an existing doc-server home

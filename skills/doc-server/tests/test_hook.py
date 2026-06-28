@@ -88,8 +88,8 @@ class TestHook(unittest.TestCase):
             Path(d, "docs", "plan.md").write_text("# Plan", encoding="utf-8")
             nudge = hook.summary_nudge(d)
             self.assertIsNotNone(nudge)
-            self.assertIn("worktree-context.md", nudge)
-            self.assertIn("--context", nudge)
+            self.assertIn("--summary-path", nudge)
+            self.assertIn("_context", nudge)
 
     def test_no_nudge_when_summary_present(self):
         hook = _load_hook()
