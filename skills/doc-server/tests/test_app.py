@@ -61,6 +61,20 @@ class TestApp(unittest.TestCase):
         with urllib.request.urlopen(result["url"] + "index.html", timeout=2) as r:
             self.assertEqual(r.status, 200)
 
+    def test_bring_up_registers_context(self):
+        self.app.bring_up(self._src.name, "docs/**/*.md", context="docs/worktree-context.md")
+        reg = self.state.read_registry()
+        entry = next(iter(reg.values()))
+        self.assertEqual(entry["context"], "docs/worktree-context.md")
+
+    def test_summary_path_resolves_and_creates_dir(self):
+        # self._src is a non-git temp dir → identity branch is "main",
+        # project is the dir basename.
+        p = self.app.summary_path(self._src.name)
+        self.assertEqual(p.name, "worktree-summary.md")
+        self.assertIn("_context", str(p))
+        self.assertTrue(p.parent.is_dir())  # parent dir created
+
 
 if __name__ == "__main__":
     unittest.main()

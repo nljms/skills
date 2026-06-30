@@ -69,13 +69,12 @@ def summary_nudge(cwd: str, url=None):
         return None
     if _has_summary(os.path.join(cwd, "docs")):
         return None
-    where = f" (served at {url})" if url else ""
     return (
-        f"This worktree (branch '{branch}') has no worktree summary yet. Consider "
-        "writing docs/worktree-summary.md — a short narrative of what this worktree "
-        "is working on (feature / bugfix / debug / research), ideally with an "
-        "end-to-end Mermaid diagram of the problem and context. doc-server promotes "
-        f"it to the lead panel of the branch page{where}."
+        "Write this worktree's context summary OUTSIDE the repo: run "
+        "`serve.py --summary-path` to get the path "
+        "(~/.claude/doc-server/_context/<project>/<branch>/worktree-summary.md) "
+        "and write it there (context summary → solution → before/after Mermaid "
+        "flow → plans). The server renders it as the lead context."
     )
 
 

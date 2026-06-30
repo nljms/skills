@@ -65,7 +65,16 @@ def read_registry() -> dict:
     return _read_json(_registry_file(), {})
 
 
-def register_target(key: str, source_root: str, glob: str) -> None:
+def register_target(key: str, source_root: str, glob: str, context: str = None) -> None:
     reg = read_registry()
-    reg[key] = {"source_root": source_root, "glob": glob}
+    entry = {"source_root": source_root, "glob": glob}
+    if context:
+        entry["context"] = context
+    reg[key] = entry
     _write_json(_registry_file(), reg)
+
+
+def context_summary_path(home, key: str) -> Path:
+    """Source path of a branch's external worktree summary (outside the repo and
+    outside the disposable generated HTML dir)."""
+    return Path(home) / "_context" / key / "worktree-summary.md"

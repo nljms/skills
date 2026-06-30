@@ -62,6 +62,33 @@ class TestMigrate(unittest.TestCase):
         self.assertIn("ghost/main", result["dropped"])
         self.assertNotIn("ghost/main", self.state.read_registry())
 
+    def test_migrate_preserves_context(self):
+        # Create a file under _context to ensure it survives migration
+        context_dir = self.home / "_context" / "repo" / "feat"
+        context_dir.mkdir(parents=True, exist_ok=True)
+        context_file = context_dir / "worktree-summary.md"
+        context_file.write_text("# Feature Branch\nSummary of work.", encoding="utf-8")
+
+        # Create a minimal repo to avoid dropped registry entries
+        repo = os.path.join(self._work.name, "repo")
+        os.makedirs(os.path.join(repo, "docs"))
+        _git(["init", "-b", "main"], repo)
+        Path(repo, "docs", "a.md").write_text("# A", encoding="utf-8")
+        _git(["add", "."], repo)
+        _git(["commit", "-m", "init"], repo)
+
+        # Register target to have something in the registry
+        self.state.register_target("repo/main", repo, "docs/**/*.md")
+
+        # Run migration
+        result = self.migrate.migrate_home(self.home)
+
+        # Verify _context/repo/feat/worktree-summary.md still exists
+        self.assertTrue(context_file.exists(), "worktree-summary.md should be preserved by migrate")
+        self.assertEqual(context_file.read_text(encoding="utf-8"),
+                         "# Feature Branch\nSummary of work.",
+                         "worktree-summary.md content should be unchanged")
+
 
 if __name__ == "__main__":
     unittest.main()

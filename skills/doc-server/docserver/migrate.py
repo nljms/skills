@@ -21,7 +21,7 @@ from pathlib import Path
 
 from . import identity, state, sync
 
-_KEEP = {"_assets"}
+_KEEP = {"_assets", "_context"}
 
 
 def migrate_home(home: Path) -> dict:

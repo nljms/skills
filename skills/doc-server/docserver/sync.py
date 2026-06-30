@@ -6,7 +6,7 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
-from . import inspect, state
+from . import gitscope, inspect, state
 
 _SYNC_LOCK = threading.Lock()
 
@@ -478,7 +478,18 @@ def split_frontmatter(text: str):
 
 def is_summary_doc(rel: str, meta: dict) -> bool:
     """A doc is the worktree summary if it is named worktree-summary.md or carries
-    frontmatter ``worktree_summary: true``."""
+    frontmatter ``worktree_summary: true``. Legacy alias — prefer is_context_doc."""
+    return is_context_doc(rel, meta)
+
+
+def is_context_doc(rel: str, meta: dict, context_path: str = None) -> bool:
+    """The worktree's lead context doc: the registry-designated path, or
+    frontmatter ``worktree_context: true``, or the legacy worktree-summary
+    name / ``worktree_summary: true`` aliases."""
+    if context_path and Path(context_path).as_posix() == rel:
+        return True
+    if meta.get("worktree_context"):
+        return True
     if Path(rel).name.lower() == "worktree-summary.md":
         return True
     return bool(meta.get("worktree_summary"))
@@ -845,27 +856,32 @@ def _toc_list_html(base_href: str, toc, cap: int = 9) -> str:
 
 
 def _summary_panel_html(summary) -> str:
-    """Lead 'what this worktree is doing' panel (agent-written summary doc)."""
-    if not summary:
+    """Legacy alias — prefer _context_panel_html."""
+    return _context_panel_html(summary)
+
+
+def _context_panel_html(context) -> str:
+    """Lead 'context' panel built from the agent's worktree context doc."""
+    if not context:
         return ""
     parts = [
-        '<div class="section-label"><span class="t">WHAT THIS WORKTREE IS DOING</span>'
+        '<div class="section-label"><span class="t">CONTEXT</span>'
         '<span class="rule"></span></div>',
         '<div class="tile" style="cursor:default">'
-        f'<div class="name" style="margin-bottom:6px">{escape(summary["title"])}</div>',
+        f'<div class="name" style="margin-bottom:6px">{escape(context["title"])}</div>',
     ]
-    if summary.get("lede"):
-        parts.append(f'<p class="lede" style="margin:0">{escape(summary["lede"])}</p>')
+    if context.get("lede"):
+        parts.append(f'<p class="lede" style="margin:0">{escape(context["lede"])}</p>')
     parts.append("</div>")
-    if summary.get("mermaid"):
+    if context.get("mermaid"):
         parts.append(
             '<div class="diagram dotted" style="margin-top:14px"><pre class="mermaid">'
-            + escape(summary["mermaid"]) + "</pre></div>"
+            + escape(context["mermaid"]) + "</pre></div>"
             '<div class="diagram-cap">Problem / context, end to end.</div>'
         )
     parts.append(
-        f'<a class="btn primary" href="{escape(summary["href"])}" '
-        f'style="margin-top:14px">Read full summary {_icon("arrow", 14)}</a>'
+        f'<a class="btn primary" href="{escape(context["href"])}" '
+        f'style="margin-top:14px">Read full context {_icon("arrow", 14)}</a>'
     )
     return "\n".join(parts)
 
@@ -920,13 +936,22 @@ def _inspect_section_html(project: str, data) -> str:
 
 
 def render_branch_index(project: str, branch: str, docs, nav,
-                        assets_local: bool, inspect_data=None, summary=None) -> str:
+                        assets_local: bool, inspect_data=None, summary=None,
+                        context=None) -> str:
     """Landing page for one served branch.
 
     `docs` = [{flat, rel, title, toc}]. Because the source docs are plain
     markdown with no served HTML index of their own, we synthesise a structure
     diagram plus a per-document table-of-contents summary.
+
+    When `context` is set and `docs` is non-empty the STRUCTURE map and
+    DOCUMENTS cards are wrapped in a collapsed <details> so the context panel
+    stays prominent. When `context` is None the layout is unchanged from today.
     """
+    # Legacy: callers that still pass summary= are treated identically.
+    if summary is not None and context is None:
+        context = summary
+
     key = f"{project}/{branch}"
     crumbs = (
         f'<a href="/index.html">{_icon("home", 14)}</a>'
@@ -950,7 +975,7 @@ def render_branch_index(project: str, branch: str, docs, nav,
         '<span class="badge ok"><i></i>live</span>'
         '</div>',
     ]
-    panel = _summary_panel_html(summary)
+    panel = _context_panel_html(context)
     if panel:
         parts.append(panel)
     inspect_html = _inspect_section_html(project, inspect_data)
@@ -963,22 +988,23 @@ def render_branch_index(project: str, branch: str, docs, nav,
                             topbar_html=topbar)
 
     rels = [d["rel"] for d in docs]
-    parts.append(
+    body = []
+    body.append(
         '<div class="section-label"><span class="t">STRUCTURE</span>'
         '<span class="rule"></span></div>'
     )
-    parts.append(
+    body.append(
         '<div class="diagram dotted"><pre class="mermaid">'
         + escape(build_tree_mermaid(branch, rels))
         + "</pre></div>"
         '<div class="diagram-cap">Auto-generated from the docs in this branch · zoom to inspect</div>'
     )
 
-    parts.append(
+    body.append(
         '<div class="section-label"><span class="t">DOCUMENTS</span>'
         f'<span class="n">{n}</span><span class="rule"></span></div>'
     )
-    parts.append('<div class="cards">')
+    body.append('<div class="cards">')
     for d in docs:
         doc_href = f"/{key}/{d['flat']}"
         label, kind = doc_tag(d["rel"])
@@ -987,8 +1013,8 @@ def render_branch_index(project: str, branch: str, docs, nav,
         # nesting <a> inside <a> is invalid HTML (the browser force-closes the
         # outer anchor, spilling the rest of the card out of the grid). The whole
         # card stays clickable via a stretched-link overlay on ".open" below.
-        parts.append('<div class="card">')
-        parts.append(
+        body.append('<div class="card">')
+        body.append(
             '<div class="card-head">'
             f'<span class="card-ic tag-{kind}">{_icon("file", 15)}</span>'
             f'<span class="tag tag-{kind}">{label}</span>'
@@ -996,16 +1022,26 @@ def render_branch_index(project: str, branch: str, docs, nav,
             f'<span class="sections">{sections} section{"s" if sections != 1 else ""}</span>'
             '</div>'
         )
-        parts.append(f'<div class="title">{escape(d["title"])}</div>')
-        parts.append(f'<div class="path">{escape(d["rel"])}</div>')
-        parts.append('<div class="div"></div>')
-        parts.append('<div class="otp">ON THIS PAGE</div>')
-        parts.append(_toc_list_html(doc_href, d["toc"]))
-        parts.append(
+        body.append(f'<div class="title">{escape(d["title"])}</div>')
+        body.append(f'<div class="path">{escape(d["rel"])}</div>')
+        body.append('<div class="div"></div>')
+        body.append('<div class="otp">ON THIS PAGE</div>')
+        body.append(_toc_list_html(doc_href, d["toc"]))
+        body.append(
             f'<a class="open" href="{escape(doc_href)}">Open document {_icon("arrow", 14)}</a>'
         )
-        parts.append("</div>")
-    parts.append("</div>")
+        body.append("</div>")
+    body.append("</div>")
+
+    if context:
+        parts.append(
+            f'<details class="other-docs"><summary>Other documents '
+            f'<span class="n">{n}</span></summary>'
+            + "\n".join(body) + "</details>"
+        )
+    else:
+        parts.extend(body)
+
     return render_shell(key, render_sidebar(nav, key), "\n".join(parts),
                         body_scripts=_mermaid_scripts(assets_local),
                         topbar_html=topbar)
@@ -1167,7 +1203,7 @@ def build_nav(reg) -> dict:
     return nav
 
 
-def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
+def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None, context=None):
     project, _, branch = key.partition("/")
     if nav is None:
         nav = build_nav(state.read_registry())
@@ -1184,10 +1220,31 @@ def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
     local = assets_available(home)
     names = []
     docs_meta = []
-    summary = None
+    context_doc = None
     current_flats: set = set()
+    # An external worktree summary (outside the repo) is the highest-priority
+    # lead context. Render it and short-circuit in-repo context detection.
+    ext_summary = state.context_summary_path(home, key)
+    if ext_summary.exists():
+        ext_text = ext_summary.read_text(encoding="utf-8", errors="replace")
+        _, ext_body = split_frontmatter(ext_text)
+        _atomic_write_text(
+            dest / "worktree-summary.html",
+            render_doc_html("worktree-summary.md", ext_body, local,
+                            back_href=back_href, sidebar_html=sidebar),
+        )
+        current_flats.add("worktree-summary.html")
+        context_doc = {
+            "title": doc_title(ext_body, "worktree-summary.md"),
+            "lede": _first_paragraph(ext_body),
+            "mermaid": _first_mermaid(ext_body),
+            "href": f"/{key}/worktree-summary.html",
+        }
+    added = gitscope.worktree_added_docs(source_root)
     for md in find_docs(source_root, glob):
         rel = md.relative_to(source_root)
+        if added is not None and rel.as_posix() not in added:
+            continue
         flat = _flatten(rel)
         current_flats.add(flat)
         text = md.read_text(encoding="utf-8", errors="replace")
@@ -1197,9 +1254,9 @@ def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
             render_doc_html(str(rel), body, local, back_href=back_href, sidebar_html=sidebar),
         )
         names.append((flat, str(rel)))
-        # The agent-written summary is promoted to the lead panel, not a card.
-        if summary is None and is_summary_doc(str(rel), meta):
-            summary = {
+        # The agent's context doc is promoted to the lead panel, not a card.
+        if context_doc is None and is_context_doc(str(rel), meta, context):
+            context_doc = {
                 "title": doc_title(body, str(rel)),
                 "lede": _first_paragraph(body),
                 "mermaid": _first_mermaid(body),
@@ -1217,7 +1274,7 @@ def sync_target(home: Path, key: str, source_root: str, glob: str, nav=None):
     _atomic_write_text(
         dest / "index.html",
         render_branch_index(project, branch, docs_meta, nav, local,
-                            inspect_data=inspect_data, summary=summary),
+                            inspect_data=inspect_data, context=context_doc),
     )
     current_flats.add("index.html")
 
@@ -1276,7 +1333,8 @@ def sync_all(home: Path) -> None:
         reg = state.read_registry()
         nav = build_nav(reg)
         for key, info in reg.items():
-            sync_target(home, key, info["source_root"], info["glob"], nav=nav)
+            sync_target(home, key, info["source_root"], info["glob"],
+                        nav=nav, context=info.get("context"))
         for project in sorted(nav):
             write_project_index(home, project, nav=nav)
         write_root_index(home, nav=nav)

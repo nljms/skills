@@ -51,6 +51,22 @@ class TestState(unittest.TestCase):
         reg = self.state.read_registry()
         self.assertEqual(reg["repo/main"], {"source_root": "/abs/repo", "glob": "docs/**/*.md"})
 
+    def test_register_target_with_context(self):
+        self.state.register_target("repo/feat", "/abs/repo", "docs/**/*.md",
+                                   context="docs/worktree-context.md")
+        reg = self.state.read_registry()
+        self.assertEqual(reg["repo/feat"]["context"], "docs/worktree-context.md")
+
+    def test_register_target_without_context_has_no_key(self):
+        self.state.register_target("repo/main", "/abs/repo", "docs/**/*.md")
+        self.assertNotIn("context", self.state.read_registry()["repo/main"])
+
+    def test_context_summary_path(self):
+        from pathlib import Path
+        home = self.state.doc_server_home()
+        p = self.state.context_summary_path(home, "repo/feat")
+        self.assertEqual(p, Path(home) / "_context" / "repo" / "feat" / "worktree-summary.md")
+
 
 if __name__ == "__main__":
     unittest.main()

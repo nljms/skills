@@ -167,10 +167,10 @@ class TestRender(unittest.TestCase):
         }
         html = sync.render_branch_index("repo", "main", [], {"repo": ["main"]},
                                         assets_local=True, summary=summary)
-        self.assertIn("WHAT THIS WORKTREE IS DOING", html)
+        self.assertIn("CONTEXT", html)
         self.assertIn("Building login", html)
         self.assertIn("Adds OAuth login end to end.", html)
-        self.assertIn("Read full summary", html)
+        self.assertIn("Read full context", html)
         self.assertIn("A--&gt;B", html)  # mermaid embedded + escaped
 
     def test_branch_index_renders_inspect_section(self):
@@ -197,6 +197,23 @@ class TestRender(unittest.TestCase):
         self.assertNotIn("WHAT THIS WORKTREE IS DOING", html)
         self.assertNotIn("OVERVIEW &amp; ARCHITECTURE", html)
         self.assertIn("STRUCTURE", html)  # existing section still present
+
+    def test_branch_index_demotes_other_docs_when_context(self):
+        docs = [{"flat": "docs__p.html", "rel": "docs/p.md", "title": "P", "toc": []}]
+        context = {"title": "Ctx", "lede": "lead", "mermaid": "", "href": "/r/feat/docs__c.html"}
+        html = sync.render_branch_index("r", "feat", docs, {"r": ["feat"]}, False,
+                                        context=context)
+        self.assertIn("CONTEXT", html)
+        self.assertIn("Other documents", html)
+        self.assertIn("<details", html)
+        self.assertIn("P", html)  # demoted doc card is still present
+
+    def test_branch_index_no_context_has_no_details(self):
+        docs = [{"flat": "docs__p.html", "rel": "docs/p.md", "title": "P", "toc": []}]
+        html = sync.render_branch_index("r", "feat", docs, {"r": ["feat"]}, False)
+        self.assertNotIn("Other documents", html)
+        self.assertIn("STRUCTURE", html)  # inline sections still present
+        self.assertIn("DOCUMENTS", html)
 
 
 if __name__ == "__main__":
