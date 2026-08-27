@@ -2,6 +2,7 @@
 
 Every command returns a Result; printing is the CLI's job.
 """
+import json
 from dataclasses import dataclass, field
 
 from . import cli, store
@@ -71,3 +72,105 @@ def use(root, cwd, provider, profile, claude) -> Result:
 
     lines.append(RECONNECT_HINT)
     return Result(True, lines)
+
+
+def show(root, cwd, claude, provider=None) -> Result:
+    known = store.providers(root)
+    if provider and provider not in known:
+        return Result(False, [f'no profiles for provider "{provider}"',
+                              f"known providers: {', '.join(known)}" if known else
+                              "the store is empty"])
+    wanted = [provider] if provider else known
+    if not wanted:
+        return Result(True, [
+            "no profiles yet",
+            "add one with: switch.py add <provider> <profile> --url <url>",
+        ])
+
+    live = cli.statuses(claude.list(cwd))
+    lines = []
+    for name in wanted:
+        active = store.get_active(root, cwd, name)
+        lines.append(f"{name}:")
+        for prof in store.profiles(root, name):
+            try:
+                config = store.read_profile(root, name, prof)
+            except store.StoreError:
+                lines.append(f"    {prof} — unreadable profile file")
+                continue
+            server = store.server_name(name, prof, config)
+            mark = "*" if prof == active else " "
+            status = live.get(server, "not registered here")
+            target = config.get("url", config.get("command", ""))
+            lines.append(f"  {mark} {prof:<12} {server:<24} {status:<18} {target}")
+    return Result(True, lines)
+
+
+def _headers(pairs) -> dict:
+    out = {}
+    for pair in pairs:
+        if ":" not in pair:
+            raise ValueError(f'header "{pair}" must look like "Name: value"')
+        key, value = pair.split(":", 1)
+        out[key.strip()] = value.strip()
+    return out
+
+
+def add(root, provider, profile, url=None, transport="http", headers=(),
+        json_config=None, server=None) -> Result:
+    if json_config:
+        try:
+            config = json.loads(json_config)
+        except ValueError as exc:
+            return Result(False, [f"--json is not valid JSON: {exc}"])
+        if not isinstance(config, dict):
+            return Result(False, ["--json must be a JSON object"])
+    elif url:
+        config = {"type": transport, "url": url}
+        try:
+            parsed = _headers(headers)
+        except ValueError as exc:
+            return Result(False, [str(exc)])
+        if parsed:
+            config["headers"] = parsed
+    else:
+        return Result(False, ["give either --url or --json"])
+
+    if server:
+        config["server"] = server
+    path = store.write_profile(root, provider, profile, config)
+    return Result(True, [
+        f"wrote {path}",
+        f"activate it with: switch.py use {provider} {profile}",
+    ])
+
+
+def save(root, cwd, provider, profile, from_server, claude, server=None) -> Result:
+    output = claude.get(from_server, cwd)
+    if cli.auth_state(output) == cli.MISSING:
+        return Result(False, [f'no MCP server named "{from_server}"',
+                              "see what is configured with: claude mcp list"])
+    try:
+        config = cli.parse_server(output)
+    except cli.ClaudeError as exc:
+        return Result(False, [str(exc)])
+
+    config["server"] = server or from_server
+    path = store.write_profile(root, provider, profile, config)
+    return Result(True, [
+        f"saved {from_server} as {provider}/{profile}",
+        f"wrote {path}",
+    ])
+
+
+def rm(root, cwd, provider, profile) -> Result:
+    if store.get_active(root, cwd, provider) == profile:
+        return Result(False, [
+            f"{provider}/{profile} is active in this directory",
+            "switch to another profile first, or unregister it with: "
+            f"claude mcp remove {store.server_name(provider, profile, {})} -s local",
+        ])
+    if not store.delete_profile(root, provider, profile):
+        return Result(False, [f'no profile "{profile}" for provider "{provider}"'])
+    return Result(True, [f"deleted {provider}/{profile}",
+                         "stored credentials are untouched"])
