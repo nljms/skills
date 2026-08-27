@@ -21,3 +21,4 @@ Or browse and install interactively after adding the marketplace:
 ## Skills
 
 - [`doc-server`](./skills/doc-server) — serve project plans and docs as browsable HTML on a local port, grouped by project and git worktree.
+- [`mcp-switch`](./skills/mcp-switch) — switch an MCP provider between named account profiles (work vs personal Linear workspaces) with one command, per project.
