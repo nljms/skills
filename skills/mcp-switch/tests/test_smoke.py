@@ -8,22 +8,35 @@ import unittest
 SWITCH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "switch.py"))
 URL = "https://example.invalid/mcp"
 
+# Isolation guarantee: this test writes nothing to the real user config. It
+# runs `switch.py` (and, in tearDown, `claude mcp remove`) with cwd pointed
+# at a temp directory, MCP_SWITCH_HOME pointed at a temp directory, and
+# CLAUDE_CONFIG_DIR pointed at a temp directory. The `claude` CLI honours
+# CLAUDE_CONFIG_DIR and reads/writes its own `.claude.json` there instead of
+# under ~/.claude.json, so local-scope server registration (keyed by cwd
+# path under the config's "projects" map) never touches the real config.
+
 
 @unittest.skipIf(shutil.which("claude") is None, "claude CLI not on PATH")
 class TestSmoke(unittest.TestCase):
     def setUp(self):
         self._home = tempfile.TemporaryDirectory()
         self._cwd = tempfile.TemporaryDirectory()
-        self.env = dict(os.environ, MCP_SWITCH_HOME=self._home.name)
+        self._config = tempfile.TemporaryDirectory()
+        self.env = dict(os.environ, MCP_SWITCH_HOME=self._home.name,
+                         CLAUDE_CONFIG_DIR=self._config.name)
 
     def tearDown(self):
-        # Leave no local-scope server behind for the temp cwd.
+        # Leave no local-scope server behind for the temp cwd. Use the same
+        # isolated CLAUDE_CONFIG_DIR so this operates on the temp config,
+        # not the real one.
         subprocess.run(["claude", "mcp", "remove", "smoke-one", "-s", "local"],
-                       cwd=self._cwd.name, capture_output=True, text=True)
+                       cwd=self._cwd.name, env=self.env, capture_output=True, text=True)
         subprocess.run(["claude", "mcp", "remove", "smoke-two", "-s", "local"],
-                       cwd=self._cwd.name, capture_output=True, text=True)
+                       cwd=self._cwd.name, env=self.env, capture_output=True, text=True)
         self._home.cleanup()
         self._cwd.cleanup()
+        self._config.cleanup()
 
     def _switch(self, *args):
         return subprocess.run([sys.executable, SWITCH, *args], cwd=self._cwd.name,
