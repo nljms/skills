@@ -31,6 +31,22 @@ class TestSkillMd(unittest.TestCase):
         self.assertIn("/mcp", text)                 # reconnect after switching
         self.assertIn("claude mcp login", text)     # auth recovery
 
+    def test_save_usage_documents_the_server_flag(self):
+        usage = [l for l in self._text().splitlines() if l.startswith("switch.py save")]
+        self.assertTrue(usage)
+        self.assertIn("--server", usage[0])
+
+    def test_documents_that_rm_refuses_an_active_profile(self):
+        text = self._text()
+        self.assertIn("refuses", text)
+        self.assertIn("switch.py rm", text)
+
+    def test_activation_is_described_as_per_project(self):
+        text = self._text()
+        self.assertIn("per project", text)
+        self.assertNotIn("per working directory", text)
+        self.assertNotIn("different accounts at once", text)
+
     def test_marketplace_lists_the_skill(self):
         with open(MARKETPLACE) as f:
             data = json.load(f)

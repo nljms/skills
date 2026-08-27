@@ -1,8 +1,10 @@
-"""Resolve where a project's MCP profiles live.
+"""Resolve the project a working directory belongs to, and where its profiles live.
 
-Profiles are keyed on the *main* repository's directory name, resolved through
-`git rev-parse --git-common-dir`, so every linked worktree of a repo shares one
-profile set. A non-git directory falls back to its own basename.
+Everything is keyed on the *main* repository, resolved through
+`git rev-parse --git-common-dir`, so a subdirectory and a linked worktree both
+resolve to the same project as the repo root. That matches how Claude Code keys
+local-scope MCP config, which is also on the main repository root. A non-git
+directory is its own project.
 """
 import os
 import subprocess
@@ -27,14 +29,19 @@ def store_home() -> Path:
     return home
 
 
-def project_key(cwd: str) -> str:
+def project_root(cwd: str) -> str:
+    """The main repository's directory, or the directory itself outside a repo."""
     # realpath so macOS symlinks (/var -> /private/var) match git's own output
     cwd = os.path.realpath(cwd)
     common = _git(["rev-parse", "--git-common-dir"], cwd)
     if not common:
-        return os.path.basename(cwd.rstrip(os.sep))
+        return cwd
     common = os.path.realpath(os.path.join(cwd, common))
-    return os.path.basename(os.path.dirname(common).rstrip(os.sep))
+    return os.path.dirname(common.rstrip(os.sep))
+
+
+def project_key(cwd: str) -> str:
+    return os.path.basename(project_root(cwd).rstrip(os.sep))
 
 
 def project_store(cwd: str) -> Path:

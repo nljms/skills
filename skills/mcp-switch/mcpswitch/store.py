@@ -1,15 +1,20 @@
-"""Profile files and the per-cwd record of which profile is active.
+"""Profile files and the per-project record of which profile is active.
 
 Layout under the project's store root:
 
-    <root>/state.json            {"<cwd>": {"<provider>": "<profile>"}}
+    <root>/state.json            {"<project root>": {"<provider>":
+                                   {"profile": "<profile>", "server": "<name>"}}}
     <root>/<provider>/<profile>.json
 
 A profile file is the JSON handed to `claude mcp add-json`, plus an optional
 "server" key naming the registered server (default "<provider>-<profile>").
+
+The state key is the main repository's root directory, the same thing Claude
+Code keys local-scope MCP config on — so every worktree of a repo shares one
+active profile per provider. The recorded server name is what deactivation
+removes, so a profile deleted from the store can still be unregistered.
 """
 import json
-import os
 from pathlib import Path
 
 STATE_FILE = "state.json"
@@ -94,21 +99,36 @@ def _write_state(root, data) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def get_active(root, cwd: str, provider: str):
-    return _read_state(root).get(os.path.realpath(cwd), {}).get(provider)
+def _entry(root, project: str, provider: str):
+    entry = _read_state(root).get(project, {}).get(provider)
+    if isinstance(entry, str):          # bare profile name, no server recorded
+        return {"profile": entry}
+    return entry if isinstance(entry, dict) else None
 
 
-def set_active(root, cwd: str, provider: str, profile: str) -> None:
+def get_active(root, project: str, provider: str):
+    entry = _entry(root, project, provider)
+    return entry.get("profile") if entry else None
+
+
+def get_active_server(root, project: str, provider: str):
+    entry = _entry(root, project, provider)
+    return entry.get("server") if entry else None
+
+
+def set_active(root, project: str, provider: str, profile: str, server=None) -> None:
     data = _read_state(root)
-    data.setdefault(os.path.realpath(cwd), {})[provider] = profile
+    entry = {"profile": profile}
+    if server:
+        entry["server"] = server
+    data.setdefault(project, {})[provider] = entry
     _write_state(root, data)
 
 
-def clear_active(root, cwd: str, provider: str) -> None:
+def clear_active(root, project: str, provider: str) -> None:
     data = _read_state(root)
-    key = os.path.realpath(cwd)
-    if data.get(key, {}).pop(provider, None) is None:
+    if data.get(project, {}).pop(provider, None) is None:
         return
-    if not data[key]:
-        del data[key]
+    if not data[project]:
+        del data[project]
     _write_state(root, data)

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from mcpswitch import commands, store  # noqa: E402
 
 CWD = "/tmp/project"
+PROJECT = "/tmp/project"
 LINEAR = {"type": "http", "url": "https://mcp.linear.app/mcp"}
 
 LIST = ("linear-work: https://mcp.linear.app/mcp - ! Needs authentication\n"
@@ -42,15 +43,15 @@ class TestShow(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_empty_store_explains_how_to_add(self):
-        result = commands.show(self.root, CWD, FakeClaude())
+        result = commands.show(self.root, CWD, PROJECT, FakeClaude())
         self.assertTrue(result.ok)
         self.assertIn("add", "\n".join(result.lines))
 
     def test_lists_profiles_with_active_marker_and_status(self):
         store.write_profile(self.root, "linear", "work", LINEAR)
         store.write_profile(self.root, "linear", "personal", LINEAR)
-        store.set_active(self.root, CWD, "linear", "work")
-        text = "\n".join(commands.show(self.root, CWD, FakeClaude()).lines)
+        store.set_active(self.root, PROJECT, "linear", "work")
+        text = "\n".join(commands.show(self.root, CWD, PROJECT, FakeClaude()).lines)
         self.assertIn("linear", text)
         self.assertIn("* work", text)
         self.assertIn("needs-auth", text)
@@ -59,19 +60,36 @@ class TestShow(unittest.TestCase):
     def test_filtering_to_one_provider(self):
         store.write_profile(self.root, "linear", "work", LINEAR)
         store.write_profile(self.root, "notion", "acme", LINEAR)
-        text = "\n".join(commands.show(self.root, CWD, FakeClaude(), provider="linear").lines)
+        text = "\n".join(commands.show(self.root, CWD, PROJECT, FakeClaude(), provider="linear").lines)
         self.assertIn("linear", text)
         self.assertNotIn("notion", text)
 
     def test_unknown_provider_filter_fails(self):
-        result = commands.show(self.root, CWD, FakeClaude(), provider="ghost")
+        result = commands.show(self.root, CWD, PROJECT, FakeClaude(), provider="ghost")
         self.assertFalse(result.ok)
+
+    def test_columns_line_up_whatever_the_status(self):
+        store.write_profile(self.root, "linear", "work", LINEAR)      # needs-auth
+        store.write_profile(self.root, "linear", "spare", LINEAR)     # unregistered
+        rows = [l for l in commands.show(self.root, CWD, PROJECT, FakeClaude()).lines
+                if l.startswith("  ")]
+        self.assertIn("not registered here", "\n".join(rows))
+        starts = {row.index(LINEAR["url"]) for row in rows}
+        self.assertEqual(len(starts), 1, rows)
+
+    def test_unreadable_profile_row_lines_up_with_the_rest(self):
+        store.write_profile(self.root, "linear", "work", LINEAR)
+        path = store.profile_path(self.root, "linear", "broken")
+        path.write_text("{oops", encoding="utf-8")
+        rows = [l for l in commands.show(self.root, CWD, PROJECT, FakeClaude()).lines
+                if l.startswith("  ")]
+        self.assertEqual({row.index(row.strip()[0]) for row in rows}, {4})
 
     def test_malformed_profile_is_reported_not_raised(self):
         path = store.profile_path(self.root, "linear", "broken")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{oops", encoding="utf-8")
-        result = commands.show(self.root, CWD, FakeClaude())
+        result = commands.show(self.root, CWD, PROJECT, FakeClaude())
         self.assertTrue(result.ok)
         self.assertIn("unreadable", "\n".join(result.lines))
 
@@ -165,18 +183,33 @@ class TestRm(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_rm_deletes_the_profile(self):
-        result = commands.rm(self.root, CWD, "linear", "work")
+        result = commands.rm(self.root, PROJECT, "linear", "work")
         self.assertTrue(result.ok)
         self.assertFalse(store.profile_path(self.root, "linear", "work").exists())
 
     def test_rm_refuses_while_active_here(self):
-        store.set_active(self.root, CWD, "linear", "work")
-        result = commands.rm(self.root, CWD, "linear", "work")
+        store.set_active(self.root, PROJECT, "linear", "work")
+        result = commands.rm(self.root, PROJECT, "linear", "work")
         self.assertFalse(result.ok)
         self.assertTrue(store.profile_path(self.root, "linear", "work").exists())
 
+    def test_rm_refusal_names_the_profiles_own_server(self):
+        store.write_profile(self.root, "linear", "named", dict(LINEAR, server="lw"))
+        store.set_active(self.root, PROJECT, "linear", "named")
+        result = commands.rm(self.root, PROJECT, "linear", "named")
+        text = "\n".join(result.lines)
+        self.assertIn("claude mcp remove lw -s local", text)
+        self.assertNotIn("linear-named", text)
+
+    def test_rm_refusal_falls_back_to_the_default_server_name(self):
+        path = store.profile_path(self.root, "linear", "broken")
+        path.write_text("{oops", encoding="utf-8")
+        store.set_active(self.root, PROJECT, "linear", "broken")
+        result = commands.rm(self.root, PROJECT, "linear", "broken")
+        self.assertIn("claude mcp remove linear-broken -s local", "\n".join(result.lines))
+
     def test_rm_of_unknown_profile_fails(self):
-        self.assertFalse(commands.rm(self.root, CWD, "linear", "ghost").ok)
+        self.assertFalse(commands.rm(self.root, PROJECT, "linear", "ghost").ok)
 
 
 if __name__ == "__main__":

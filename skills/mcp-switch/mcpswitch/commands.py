@@ -1,6 +1,8 @@
 """The commands the CLI exposes, composed from the store and the claude seam.
 
-Every command returns a Result; printing is the CLI's job.
+`cwd` is where `claude mcp` runs; `project` is the main repository root that
+both the CLI and the store key activation on. Every command returns a Result;
+printing is the CLI's job.
 """
 import json
 from dataclasses import dataclass, field
@@ -16,21 +18,32 @@ class Result:
     lines: list = field(default_factory=list)
 
 
-def _deactivate(root, cwd, provider, previous, claude, lines):
-    """Remove the previously active server, tolerating one that is already gone."""
+def _profile_server(root, provider, profile):
+    """The profile's registered server name, defaulting when it cannot be read."""
     try:
-        config = store.read_profile(root, provider, previous)
+        config = store.read_profile(root, provider, profile)
     except store.StoreError:
-        config = {}          # profile file deleted since it was activated
-    name = store.server_name(provider, previous, config)
+        config = {}
+    return store.server_name(provider, profile, config)
+
+
+def _deactivate(root, project, cwd, provider, previous, claude, lines):
+    """Remove the previously active server, tolerating one that is already gone."""
+    # The name recorded at activation time, so a profile deleted from the store
+    # since then is still unregistered under the name it really used.
+    name = store.get_active_server(root, project, provider) \
+        or _profile_server(root, provider, previous)
     try:
         claude.remove(name, cwd)
         lines.append(f"removed {name}")
-    except cli.ClaudeError:
-        lines.append(f"{name} was already gone")
+    except cli.ClaudeError as exc:
+        if "No MCP server named" in str(exc):
+            lines.append(f"{name} was already gone")
+        else:
+            lines.append(f"could not remove {name}: {exc}")
 
 
-def use(root, cwd, provider, profile, claude) -> Result:
+def use(root, cwd, project, provider, profile, claude) -> Result:
     try:
         config = store.read_profile(root, provider, profile)
     except store.StoreError as exc:
@@ -42,9 +55,16 @@ def use(root, cwd, provider, profile, claude) -> Result:
     name = store.server_name(provider, profile, config)
     lines = []
 
-    previous = store.get_active(root, cwd, provider)
+    previous = store.get_active(root, project, provider)
     if previous and previous != profile:
-        _deactivate(root, cwd, provider, previous, claude, lines)
+        _deactivate(root, project, cwd, provider, previous, claude, lines)
+
+    # `claude mcp add-json` refuses a name that already exists, so clear it
+    # first. It is usually not registered, and that failure is expected.
+    try:
+        claude.remove(name, cwd)
+    except cli.ClaudeError:
+        pass
 
     try:
         claude.add_json(name, store.server_config(config), cwd)
@@ -52,7 +72,7 @@ def use(root, cwd, provider, profile, claude) -> Result:
         lines.append(f"could not register {name}: {exc}")
         return Result(False, lines)
 
-    store.set_active(root, cwd, provider, profile)
+    store.set_active(root, project, provider, profile, name)
     lines.append(f"{provider} -> {profile} ({name})")
 
     state = cli.auth_state(claude.get(name, cwd))
@@ -61,20 +81,23 @@ def use(root, cwd, provider, profile, claude) -> Result:
     elif state == cli.FAILED:
         lines.append(f"registered but not connected — check: claude mcp get {name}")
     elif state == cli.MISSING:
-        lines.append(f"registered but not visible — check: claude mcp list")
+        lines.append("registered but not visible — check: claude mcp list")
 
     host = cli.host_of(config.get("url"))
     for other in cli.duplicate_hosts(claude.list(cwd), host, exclude=name):
+        remedy = "disconnect it in claude.ai settings if you want only one" \
+            if other.startswith("claude.ai ") else \
+            f"drop it with: claude mcp remove {other} -s local"
         lines.append(
             f"warning: {other} also serves {host} — both sets of tools are live; "
-            "disconnect it in claude.ai settings if you want only one"
+            + remedy
         )
 
     lines.append(RECONNECT_HINT)
     return Result(True, lines)
 
 
-def show(root, cwd, claude, provider=None) -> Result:
+def show(root, cwd, project, claude, provider=None) -> Result:
     known = store.providers(root)
     if provider and provider not in known:
         return Result(False, [f'no profiles for provider "{provider}"',
@@ -90,19 +113,19 @@ def show(root, cwd, claude, provider=None) -> Result:
     live = cli.statuses(claude.list(cwd))
     lines = []
     for name in wanted:
-        active = store.get_active(root, cwd, name)
+        active = store.get_active(root, project, name)
         lines.append(f"{name}:")
         for prof in store.profiles(root, name):
+            mark = "*" if prof == active else " "
             try:
                 config = store.read_profile(root, name, prof)
             except store.StoreError:
-                lines.append(f"    {prof} — unreadable profile file")
+                lines.append(f"  {mark} {prof} — unreadable profile file")
                 continue
             server = store.server_name(name, prof, config)
-            mark = "*" if prof == active else " "
             status = live.get(server, "not registered here")
             target = config.get("url", config.get("command", ""))
-            lines.append(f"  {mark} {prof:<12} {server:<24} {status:<18} {target}")
+            lines.append(f"  {mark} {prof:<12} {server:<24} {status:<20} {target}")
     return Result(True, lines)
 
 
@@ -163,12 +186,12 @@ def save(root, cwd, provider, profile, from_server, claude, server=None) -> Resu
     ])
 
 
-def rm(root, cwd, provider, profile) -> Result:
-    if store.get_active(root, cwd, provider) == profile:
+def rm(root, project, provider, profile) -> Result:
+    if store.get_active(root, project, provider) == profile:
         return Result(False, [
-            f"{provider}/{profile} is active in this directory",
+            f"{provider}/{profile} is active in this project",
             "switch to another profile first, or unregister it with: "
-            f"claude mcp remove {store.server_name(provider, profile, {})} -s local",
+            f"claude mcp remove {_profile_server(root, provider, profile)} -s local",
         ])
     if not store.delete_profile(root, provider, profile):
         return Result(False, [f'no profile "{profile}" for provider "{provider}"'])

@@ -11,9 +11,10 @@ switch.py use linear personal
 ```
 
 Profiles live in `~/.claude/mcp/<project>/`, keyed on the main repository's
-directory name, so every worktree of a repo shares them. Activation is per
-working directory: two worktrees can sit on different workspaces at the same
-time.
+directory name, so every worktree and subdirectory of a repo shares them — and
+shares the active one too. `claude mcp add-json -s local` files every
+registration under the main repository root whatever directory it runs from, so
+a project has exactly one live account per provider.
 
 Each profile owns its own registered server name (`linear-work`,
 `linear-personal`), which is what lets both stay authenticated — Claude Code

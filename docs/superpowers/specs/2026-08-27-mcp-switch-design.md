@@ -29,7 +29,7 @@ Two facts about the current machine set the constraints:
 
 ```
 ~/.claude/mcp/<project>/
-  state.json          # active profile per provider, keyed by working directory
+  state.json          # active profile per provider, keyed by project root
   linear/
     work.json         # {"server": "linear-work", "transport": "http",
                       #  "url": "https://mcp.linear.app/mcp"}
@@ -48,20 +48,25 @@ Profile files are plain JSON, hand-editable, and hold exactly what
 `claude mcp add-json` needs plus the server name. `server` defaults to
 `<provider>-<profile>` when omitted.
 
-### Activation — per working directory
+### Activation — per project
 
 A switch writes the chosen profile into **local scope**
-(`claude mcp add-json <server> '<json>' -s local`), which Claude Code keys on
-the current working directory. Profiles are shared at repo level; which one is
-*active* is per-cwd, so two worktrees of the same repo can sit on different
-Linear workspaces simultaneously.
+(`claude mcp add-json <server> '<json>' -s local`). Claude Code files that under
+the **main repository root**, not the working directory: a registration made
+from a subdirectory or from a linked worktree lands under the same project key
+as one made from the repo root. So activation is per project — one live profile
+per provider per repository — and every worktree of a repo shares it. Keying
+state any other way would leave two profiles' servers registered side by side
+under one project, which is exactly the duplicate-account hazard this exists to
+prevent.
 
-`state.json` records the active profile per provider. Because activation is
-per-cwd but the file is per-repo, state is keyed by cwd:
+`state.json` therefore uses the same key the CLI does, the main repo root, and
+records the server name that was registered so deactivation never has to guess
+it back from a profile that may since have been deleted:
 
 ```json
-{"/Users/me/work/repo": {"linear": "work"},
- "/Users/me/.paseo/worktrees/ab12/heavy-rabbit": {"linear": "personal"}}
+{"/Users/me/work/repo": {"linear": {"profile": "work", "server": "linear-work"}},
+ "/Users/me/work/other": {"notion": {"profile": "acme", "server": "notion-acme"}}}
 ```
 
 ### Switch flow
@@ -70,17 +75,19 @@ per-cwd but the file is per-repo, state is keyed by cwd:
 flowchart TD
   A["mcp-switch use linear personal"] --> B{"profile exists\nin store?"}
   B -->|no| Z["error: list available profiles"]
-  B -->|yes| C{"another linear profile\nactive in this cwd?"}
+  B -->|yes| C{"another linear profile\nactive in this project?"}
   C -->|yes| D["claude mcp remove linear-work -s local"]
   C -->|no| E
-  D --> E["claude mcp add-json linear-personal '...' -s local"]
-  E --> F["record active profile in state.json"]
+  D --> E["claude mcp remove linear-personal -s local\n(tolerate 'not registered')"]
+  E --> E2["claude mcp add-json linear-personal '...' -s local"]
+  E2 --> F["record active profile + server in state.json"]
   F --> G["claude mcp get linear-personal"]
   G -->|connected| H["✓ switched — run /mcp to reconnect"]
   G -->|needs auth| I["run: claude mcp login linear-personal"]
-  H --> J{"a claude.ai connector\nshares this host?"}
+  H --> J{"another server\nshares this host?"}
   I --> J
-  J -->|yes| K["warn: duplicate tools until you\ndisconnect it in claude.ai settings"]
+  J -->|connector| K["warn: duplicate tools until you\ndisconnect it in claude.ai settings"]
+  J -->|local server| L["warn: duplicate tools until you\nclaude mcp remove it -s local"]
 ```
 
 Removing a server is not the same as logging out — `claude mcp logout` is a
@@ -94,22 +101,29 @@ leaves a dead server behind.
 
 | Command | Behaviour |
 |---|---|
-| `list [provider]` | Providers → profiles, which is active in this cwd, auth status per profile |
+| `list [provider]` | Providers → profiles, which is active in this project, auth status per profile |
 | `use <provider> <profile>` | The flow above |
-| `save <provider> <profile> --from <server>` | Capture an already-configured server into the store |
+| `save <provider> <profile> --from <server> [--server <name>]` | Capture an already-configured server into the store |
 | `add <provider> <profile> --url <url> [-H k:v] [--transport http\|sse]` | Define a profile from scratch |
 | `add <provider> <profile> --json '<json>'` | Same, for stdio servers or anything unusual |
 | `rm <provider> <profile>` | Delete from the store; never touches OAuth credentials |
 
-`use` is the hot path and the only one the skill needs for day-to-day work.
+`use` is the hot path and the only one the skill needs for day-to-day work. It
+is idempotent: `claude mcp add-json` refuses a name that already exists, so the
+target server name is always removed before it is added, and that removal is
+allowed to fail. Re-selecting the active profile re-registers it cleanly, and so
+does `use` straight after `save`, where the server is registered already.
 
-### The claude.ai connector warning
+### The duplicate-host warning
 
 After a successful switch, the skill compares the profile's URL host against the
-hosts in `claude mcp list`. A connector on the same host means two sets of the
-provider's tools are live at once, with no way to tell from a tool name which
-account answers. The skill prints a one-line warning naming the connector and
-pointing at claude.ai settings. It does not attempt to disable it.
+hosts in `claude mcp list`. Another server on the same host means two sets of
+the provider's tools are live at once, with no way to tell from a tool name
+which account answers. The skill prints a one-line warning naming it. Connectors
+are listed as `claude.ai <Name>` and can only be disconnected in claude.ai
+settings, so that is what the warning says for them; any other server is local,
+and the warning offers `claude mcp remove <name> -s local` instead. It disables
+nothing itself.
 
 ### Reconnecting
 
@@ -144,13 +158,20 @@ ending in `OK`. Coverage:
 - **identity** — a linked worktree and its main checkout resolve to the same
   store name; a non-git directory degrades to the directory's own name.
 - **store** — profile round-trip, `server` defaulting to `<provider>-<profile>`,
-  state keyed per cwd, malformed JSON surfacing a readable error.
+  state keyed per project root and recording the registered server name,
+  malformed JSON surfacing a readable error.
 - **commands** — `use` removes the previously active server before adding the
-  new one; `use` on an unknown profile errors without mutating anything;
-  `use` when nothing is active skips the remove; auth-missing output names the
-  login command; the connector-host warning fires only on a host match.
+  new one; `use` on the already-active profile still succeeds; `use` on an
+  unknown profile errors without mutating anything; a deleted profile is still
+  deactivated under the server name recorded for it; auth-missing output names
+  the login command; the duplicate-host warning fires only on a host match and
+  gives advice that fits the server it names.
 - **cli seam** — arguments handed to `claude mcp` are exactly as expected
   (asserted against a fake, never executed).
+- **smoke** — the only test that runs the real `claude` CLI, under a temp cwd,
+  a temp `MCP_SWITCH_HOME` and a temp `CLAUDE_CONFIG_DIR`: a switch round-trip,
+  `use` twice in a row, and activation from a repo root seen from one of its
+  subdirectories.
 
 ## Out of scope
 
@@ -159,5 +180,8 @@ ending in `OK`. Coverage:
 - Reading, moving or rewriting stored OAuth credentials. Auth is always the
   provider's own `claude mcp login` flow.
 - Auto-reconnecting the running session after a switch.
-- Global (user-scope) activation. Everything is per-cwd by design; a later
+- Global (user-scope) activation. Everything is local scope by design; a later
   iteration could add `--scope user` behind a flag.
+- Two accounts for one provider live in one repository at the same time. Local
+  scope is keyed on the main repository root, so the CLI has nowhere to put a
+  second one.

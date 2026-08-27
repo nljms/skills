@@ -17,7 +17,7 @@ def _parser():
     show = subs.add_parser("list", help="show profiles and which one is active here")
     show.add_argument("provider", nargs="?", default=None)
 
-    use = subs.add_parser("use", help="activate a profile in this directory")
+    use = subs.add_parser("use", help="activate a profile for this project")
     use.add_argument("provider")
     use.add_argument("profile")
 
@@ -49,13 +49,16 @@ def _parser():
 def main(argv=None, claude=None) -> int:
     args = _parser().parse_args(argv)
     cwd = os.getcwd()
+    # Claude Code keys local-scope MCP config on the main repository root, so
+    # that is what activation is keyed on too — resolved once, handed down.
+    project = identity.project_root(cwd)
     root = identity.project_store(cwd)
     claude = claude or cli.Claude()
 
     if args.command == "list":
-        result = commands.show(root, cwd, claude, provider=args.provider)
+        result = commands.show(root, cwd, project, claude, provider=args.provider)
     elif args.command == "use":
-        result = commands.use(root, cwd, args.provider, args.profile, claude)
+        result = commands.use(root, cwd, project, args.provider, args.profile, claude)
     elif args.command == "add":
         result = commands.add(root, args.provider, args.profile, url=args.url,
                               transport=args.transport, headers=args.header,
@@ -64,7 +67,7 @@ def main(argv=None, claude=None) -> int:
         result = commands.save(root, cwd, args.provider, args.profile,
                                args.from_server, claude, server=args.server)
     else:
-        result = commands.rm(root, cwd, args.provider, args.profile)
+        result = commands.rm(root, project, args.provider, args.profile)
 
     for line in result.lines:
         print(line)

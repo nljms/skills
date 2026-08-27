@@ -50,6 +50,36 @@ class TestIdentity(unittest.TestCase):
         root = self._repo("myrepo")
         self.assertEqual(identity.project_key(root), "myrepo")
 
+    def test_project_root_is_the_main_repo_directory(self):
+        root = self._repo("myrepo")
+        self.assertEqual(identity.project_root(root), root)
+
+    def test_project_root_from_a_subdirectory_is_the_repo(self):
+        root = self._repo("myrepo")
+        sub = os.path.join(root, "deep", "dir")
+        os.makedirs(sub)
+        self.assertEqual(identity.project_root(sub), root)
+
+    def test_project_root_of_a_worktree_is_the_main_repo(self):
+        root = self._repo("myrepo")
+        wt = os.path.join(self.tmp, "elsewhere", "feature-checkout")
+        os.makedirs(os.path.dirname(wt))
+        _run(["git", "worktree", "add", "-b", "feat", wt], root)
+        self.assertEqual(identity.project_root(wt), root)
+
+    def test_project_root_outside_a_repo_is_the_directory_itself(self):
+        plain = os.path.join(self.tmp, "loose-folder")
+        os.makedirs(plain)
+        self.assertEqual(identity.project_root(plain), plain)
+
+    def test_project_key_is_the_basename_of_project_root(self):
+        root = self._repo("myrepo")
+        sub = os.path.join(root, "deep")
+        os.makedirs(sub)
+        for where in (root, sub):
+            self.assertEqual(identity.project_key(where),
+                             os.path.basename(identity.project_root(where)))
+
     def test_subdirectory_resolves_to_repo_name(self):
         root = self._repo("myrepo")
         sub = os.path.join(root, "deep", "dir")

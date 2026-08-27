@@ -16,7 +16,7 @@ class TestStore(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
-        self.cwd = "/tmp/some/project"
+        self.project = "/tmp/some/project"
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -68,7 +68,7 @@ class TestStore(unittest.TestCase):
         self.assertEqual(store.profiles(self.root, "linear"), [])
 
     def test_state_json_is_not_listed_as_a_provider(self):
-        store.set_active(self.root, self.cwd, "linear", "work")
+        store.set_active(self.root, self.project, "linear", "work")
         self.assertEqual(store.providers(self.root), [])
 
     def test_delete_profile_reports_whether_it_existed(self):
@@ -77,34 +77,51 @@ class TestStore(unittest.TestCase):
         self.assertFalse(store.delete_profile(self.root, "linear", "work"))
         self.assertFalse((self.root / "linear").exists())
 
-    def test_active_profile_is_keyed_per_cwd(self):
-        other = "/tmp/other/worktree"
-        store.set_active(self.root, self.cwd, "linear", "work")
+    def test_active_profile_is_keyed_per_project(self):
+        other = "/tmp/other/project"
+        store.set_active(self.root, self.project, "linear", "work")
         store.set_active(self.root, other, "linear", "personal")
-        self.assertEqual(store.get_active(self.root, self.cwd, "linear"), "work")
+        self.assertEqual(store.get_active(self.root, self.project, "linear"), "work")
         self.assertEqual(store.get_active(self.root, other, "linear"), "personal")
 
     def test_active_is_none_when_unset(self):
-        self.assertIsNone(store.get_active(self.root, self.cwd, "linear"))
+        self.assertIsNone(store.get_active(self.root, self.project, "linear"))
+
+    def test_set_active_records_the_server_name(self):
+        store.set_active(self.root, self.project, "linear", "work", "lw")
+        self.assertEqual(store.get_active(self.root, self.project, "linear"), "work")
+        self.assertEqual(store.get_active_server(self.root, self.project, "linear"), "lw")
+
+    def test_active_server_is_none_when_it_was_never_recorded(self):
+        store.set_active(self.root, self.project, "linear", "work")
+        self.assertIsNone(store.get_active_server(self.root, self.project, "linear"))
+
+    def test_a_bare_string_state_entry_still_reads_as_the_active_profile(self):
+        (self.root / "state.json").write_text(
+            json.dumps({self.project: {"linear": "work"}}), encoding="utf-8")
+        self.assertEqual(store.get_active(self.root, self.project, "linear"), "work")
+        self.assertIsNone(store.get_active_server(self.root, self.project, "linear"))
 
     def test_clear_active_removes_the_provider_entry(self):
-        store.set_active(self.root, self.cwd, "linear", "work")
-        store.clear_active(self.root, self.cwd, "linear")
-        self.assertIsNone(store.get_active(self.root, self.cwd, "linear"))
+        store.set_active(self.root, self.project, "linear", "work", "lw")
+        store.clear_active(self.root, self.project, "linear")
+        self.assertIsNone(store.get_active(self.root, self.project, "linear"))
+        self.assertIsNone(store.get_active_server(self.root, self.project, "linear"))
 
     def test_clear_active_is_safe_when_unset(self):
-        store.clear_active(self.root, self.cwd, "linear")  # must not raise
+        store.clear_active(self.root, self.project, "linear")  # must not raise
 
     def test_corrupt_state_file_degrades_to_empty(self):
         (self.root / "state.json").write_text("{oops", encoding="utf-8")
-        self.assertIsNone(store.get_active(self.root, self.cwd, "linear"))
-        store.set_active(self.root, self.cwd, "linear", "work")
-        self.assertEqual(store.get_active(self.root, self.cwd, "linear"), "work")
+        self.assertIsNone(store.get_active(self.root, self.project, "linear"))
+        store.set_active(self.root, self.project, "linear", "work")
+        self.assertEqual(store.get_active(self.root, self.project, "linear"), "work")
 
     def test_state_file_is_readable_json(self):
-        store.set_active(self.root, self.cwd, "linear", "work")
+        store.set_active(self.root, self.project, "linear", "work", "linear-work")
         data = json.loads((self.root / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual(data[os.path.realpath(self.cwd)]["linear"], "work")
+        self.assertEqual(data[self.project]["linear"],
+                         {"profile": "work", "server": "linear-work"})
 
 
 if __name__ == "__main__":

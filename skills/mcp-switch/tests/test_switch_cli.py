@@ -65,6 +65,13 @@ class TestSwitchCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("* work", out)
 
+    def test_use_twice_in_a_row_succeeds(self):
+        self._run(["add", "linear", "work", "--url", LINEAR_URL])
+        self.assertEqual(self._run(["use", "linear", "work"])[0], 0)
+        code, out = self._run(["use", "linear", "work"])
+        self.assertEqual(code, 0)
+        self.assertIn("linear-work", out)
+
     def test_use_unknown_profile_exits_nonzero(self):
         code, out = self._run(["use", "linear", "ghost"])
         self.assertEqual(code, 1)
