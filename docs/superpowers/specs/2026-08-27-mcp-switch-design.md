@@ -82,7 +82,9 @@ flowchart TD
   E -->|ok| F["record active profile + server in state.json"]
   E -->|already exists| M{"is that the registration\nstate recorded for\nthis same profile?"}
   M -->|no| N["error: not ours — left untouched.\nclaude mcp remove linear-personal -s local\nto replace it deliberately"]
-  M -->|yes| O["remove it, then add-json again"]
+  M -->|yes| P{"does it still hold\nthis profile's definition?"}
+  P -->|no| N
+  P -->|yes| O["remove it, then add-json again"]
   O --> F
   F --> G["claude mcp get linear-personal"]
   G -->|connected| H["✓ switched — run /mcp to reconnect"]
@@ -128,6 +130,14 @@ the deactivation of a previously active profile can reach a server it did not
 create. In particular `save` writes the profile and nothing else. Activating a
 saved profile is a deliberate two-step the user performs — remove the captured
 server, then `use` — because the profile is a lossy copy of it.
+
+Two consequences, both deliberate. Deactivation removes only the name recorded
+at activation; with nothing recorded it removes nothing and says so, leaving a
+possible orphan for the user to clear rather than deleting a name guessed from
+the profile's own editable `server` key. And a recorded name is not proof on its
+own, because `claude mcp remove` is something the docs tell the user to run — so
+before replacing its own registration `use` reads the live definition back and
+compares where it points, refusing if someone else has taken the name over.
 
 ### The duplicate-host warning
 

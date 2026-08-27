@@ -51,6 +51,11 @@ class TestSkillMd(unittest.TestCase):
         text = self._text()
         self.assertIn("does not capture headers or env", text)
 
+    def test_documents_the_two_step_activation_of_a_saved_profile(self):
+        text = self._text()
+        self.assertIn("claude mcp remove <server> -s local", text)
+        self.assertIn("switch.py use <provider> <profile>", text)
+
     def test_the_one_active_profile_limit_cites_local_scope(self):
         limit = [l for l in self._text().splitlines()
                  if "One active profile per provider per project" in l][0]

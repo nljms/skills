@@ -26,6 +26,10 @@ LIST_WITH_LOCAL_TWIN = (
 )
 LIST_CLEAN = "linear-personal: https://mcp.linear.app/mcp - ✔ Connected"
 
+# The same name pointing somewhere else entirely.
+FOREIGN_URL = "https://private.example/mcp"
+GET_FOREIGN = f"n:\n  Status: ✔ Connected\n  Type: http\n  URL: {FOREIGN_URL}"
+
 
 class FakeClaude:
     """Models the real CLI's registry: add-json refuses a name that exists,
@@ -35,6 +39,7 @@ class FakeClaude:
                  remove_error=None, registered=None):
         self.calls = []
         self.get_output = get_output
+        self.get_outputs = {}          # per-name override of what `get` reports
         self.list_output = list_output
         self.remove_error = remove_error
         self.registered = dict(registered or {})
@@ -57,7 +62,7 @@ class FakeClaude:
 
     def get(self, name, cwd):
         self.calls.append(("get", name, None))
-        return self.get_output
+        return self.get_outputs.get(name, self.get_output)
 
     def list(self, cwd):
         self.calls.append(("list", None, None))
@@ -281,12 +286,45 @@ class TestUse(unittest.TestCase):
         self._use("personal", fake)
         self.assertEqual(self._mutations(fake)[0], ("remove", "lw"))
 
-    def test_a_state_entry_without_a_server_name_falls_back_to_the_profile(self):
+    def test_a_state_entry_without_a_recorded_server_removes_nothing(self):
+        # The profile's "server" key is a user-editable string, not proof that
+        # we registered it. Leave a possible orphan rather than delete it.
         (self.root / "state.json").write_text(
             '{"%s": {"linear": "work"}}' % PROJECT, encoding="utf-8")
-        fake = FakeClaude(registered={"linear-work": LINEAR})
-        self._use("personal", fake)
-        self.assertEqual(self._mutations(fake)[0], ("remove", "linear-work"))
+        foreign = {"type": "http", "url": FOREIGN_URL}
+        fake = FakeClaude(registered={"linear-work": foreign})
+
+        result = self._use("personal", fake)
+        self.assertTrue(result.ok, "\n".join(result.lines))
+        self.assertNotIn(("remove", "linear-work"), self._mutations(fake))
+        self.assertEqual(fake.registered["linear-work"], foreign)
+        self.assertIn("no registration recorded", "\n".join(result.lines))
+
+    def test_reactivation_refuses_when_the_name_now_holds_something_else(self):
+        # SKILL.md tells the user to `claude mcp remove` a server by hand. If
+        # they then register their own under that name, the recorded name still
+        # matches — but the registration is no longer ours to replace.
+        fake = FakeClaude()
+        self._use("work", fake)
+        hijacked = {"type": "http", "url": FOREIGN_URL}
+        fake.registered["linear-work"] = hijacked
+        fake.get_outputs["linear-work"] = GET_FOREIGN
+        fake.calls.clear()
+
+        result = self._use("work", fake)
+        self.assertFalse(result.ok)
+        self.assertIn("claude mcp remove linear-work -s local", "\n".join(result.lines))
+        self.assertEqual(fake.registered["linear-work"], hijacked)
+        self.assertNotIn(("remove", "linear-work"), self._mutations(fake))
+        self.assertEqual(store.get_active(self.root, PROJECT, "linear"), "work")
+
+    def test_reactivation_proceeds_when_the_definition_still_matches(self):
+        fake = FakeClaude()
+        self._use("work", fake)
+        fake.calls.clear()
+        result = self._use("work", fake)
+        self.assertTrue(result.ok, "\n".join(result.lines))
+        self.assertEqual(fake.registered["linear-work"], LINEAR)
 
     def test_activation_is_shared_across_worktrees_of_one_project(self):
         # Two working directories of the same repo resolve to one project root,

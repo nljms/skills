@@ -135,6 +135,34 @@ class TestSmoke(unittest.TestCase):
                                   capture_output=True, text=True, timeout=180)
         self.assertIn(own, survived.stdout)
 
+    def test_reactivation_refuses_when_the_name_was_taken_over(self):
+        # The recorded name is one we registered, but `claude mcp remove` is
+        # something the docs tell the user to run — after which the name may
+        # hold a server of theirs that we must not silently replace.
+        self._switch("add", "smoke", "one", "--url", URL, "--server", "smoke-one")
+        used = self._switch("use", "smoke", "one")
+        self.assertEqual(used.returncode, 0, used.stdout + used.stderr)
+
+        own = "https://original.invalid/mcp"
+        subprocess.run(["claude", "mcp", "remove", "smoke-one", "-s", "local"],
+                       cwd=self._cwd.name, env=self.env, capture_output=True, text=True)
+        retaken = subprocess.run(
+            ["claude", "mcp", "add-json", "smoke-one",
+             '{"type":"http","url":"%s","headers":{"X-Api-Key":"secret"}}' % own,
+             "-s", "local"],
+            cwd=self._cwd.name, env=self.env, capture_output=True, text=True)
+        self.assertEqual(retaken.returncode, 0, retaken.stdout + retaken.stderr)
+
+        again = self._switch("use", "smoke", "one")
+        self.assertEqual(again.returncode, 1, again.stdout + again.stderr)
+        self.assertIn("claude mcp remove smoke-one -s local", again.stdout)
+
+        survived = subprocess.run(["claude", "mcp", "get", "smoke-one"],
+                                  cwd=self._cwd.name, env=self.env,
+                                  capture_output=True, text=True, timeout=180)
+        self.assertIn(own, survived.stdout)
+        self.assertNotIn(URL, survived.stdout)
+
     def test_activation_is_shared_across_a_repo(self):
         # Claude Code keys local scope on the main repository root, so a
         # subdirectory of the repo must see the same active profile.

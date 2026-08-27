@@ -230,18 +230,26 @@ class TestRm(unittest.TestCase):
 
     def test_rm_refusal_names_the_profiles_own_server(self):
         store.write_profile(self.root, "linear", "named", dict(LINEAR, server="lw"))
-        store.set_active(self.root, PROJECT, "linear", "named")
+        store.set_active(self.root, PROJECT, "linear", "named", "lw")
         result = commands.rm(self.root, PROJECT, "linear", "named")
         text = "\n".join(result.lines)
-        self.assertIn("claude mcp remove lw -s local", text)
+        self.assertIn("lw", text)
         self.assertNotIn("linear-named", text)
 
     def test_rm_refusal_falls_back_to_the_default_server_name(self):
         path = store.profile_path(self.root, "linear", "broken")
         path.write_text("{oops", encoding="utf-8")
         store.set_active(self.root, PROJECT, "linear", "broken")
-        result = commands.rm(self.root, PROJECT, "linear", "broken")
-        self.assertIn("claude mcp remove linear-broken -s local", "\n".join(result.lines))
+        self.assertIn("linear-broken",
+                      "\n".join(commands.rm(self.root, PROJECT, "linear", "broken").lines))
+
+    def test_rm_refusal_only_offers_the_step_that_unblocks_it(self):
+        # Unregistering the server leaves the state slot set, so `rm` would go
+        # on refusing: saying otherwise sends the user down a dead end.
+        store.set_active(self.root, PROJECT, "linear", "work", "linear-work")
+        text = "\n".join(commands.rm(self.root, PROJECT, "linear", "work").lines)
+        self.assertNotIn("claude mcp remove", text)
+        self.assertIn("switch.py use linear", text)
 
     def test_rm_of_unknown_profile_fails(self):
         self.assertFalse(commands.rm(self.root, PROJECT, "linear", "ghost").ok)

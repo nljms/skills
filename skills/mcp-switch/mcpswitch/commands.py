@@ -19,12 +19,36 @@ class Result:
 
 
 def _profile_server(root, provider, profile):
-    """The profile's registered server name, defaulting when it cannot be read."""
+    """The name a profile would register as. For display only — the "server"
+    key is user-editable, so it is never evidence that we registered it."""
     try:
         config = store.read_profile(root, provider, profile)
     except store.StoreError:
         config = {}
     return store.server_name(provider, profile, config)
+
+
+def _target(config) -> tuple:
+    """What a server points at — enough to tell two definitions apart."""
+    if config is None:
+        return None
+    return (config.get("url") or "", config.get("command") or "")
+
+
+def _live_config(name, cwd, claude):
+    """The registered server's definition, or None if it cannot be read."""
+    try:
+        return cli.parse_server(claude.get(name, cwd))
+    except cli.ClaudeError:
+        return None
+
+
+def _refuse(name, why, lines) -> bool:
+    lines.append(f"a server named {name} is already registered in this project "
+                 f"and {why} — left untouched")
+    lines.append("replace it yourself if that is what you meant: "
+                 f"claude mcp remove {name} -s local")
+    return False
 
 
 def _deactivate(cwd, name, claude, lines):
@@ -48,8 +72,9 @@ def _register(root, project, cwd, provider, profile, name, config, claude, lines
     captured, so the sole registration we will overwrite is the one state says
     we made for this same profile — which is what keeps re-activation working.
 
-    Only a successful `use` writes state, so a match here always means we
-    registered that name ourselves.
+    Only a successful `use` writes state, so a recorded name is always one we
+    registered ourselves — but the user may have removed it and put their own
+    server there since, so what is live is compared against the profile too.
     """
     try:
         claude.add_json(name, store.server_config(config), cwd)
@@ -62,11 +87,13 @@ def _register(root, project, cwd, provider, profile, name, config, claude, lines
     ours = (store.get_active(root, project, provider) == profile
             and store.get_active_server(root, project, provider) == name)
     if not ours:
-        lines.append(f"a server named {name} is already registered in this project "
-                     "and is not this profile's registration — left untouched")
-        lines.append("replace it yourself if that is what you meant: "
-                     f"claude mcp remove {name} -s local")
-        return False
+        return _refuse(name, "is not this profile's registration", lines)
+
+    # The name is one we registered, but the user may have removed it and put
+    # their own server there since — SKILL.md tells them how to. Compare what
+    # is live against the profile before replacing it.
+    if _target(_live_config(name, cwd, claude)) != _target(store.server_config(config)):
+        return _refuse(name, "no longer holds this profile's definition", lines)
 
     try:
         claude.remove(name, cwd)
@@ -91,14 +118,18 @@ def use(root, cwd, project, provider, profile, claude) -> Result:
 
     previous = store.get_active(root, project, provider)
     if previous and previous != profile:
-        # The name recorded at activation time, so a profile deleted from the
-        # store since then is still unregistered under the name it really used.
-        stale = store.get_active_server(root, project, provider) \
-            or _profile_server(root, provider, previous)
-        # When the outgoing registration *is* the name we are about to add,
-        # leave it standing and let _register decide whether it is ours to
-        # replace — removing it first would destroy it either way.
-        if stale != name:
+        # Only the name recorded at activation time, which by construction is
+        # one this skill registered. A profile's own "server" key is a
+        # user-editable string and proves nothing, so with nothing recorded we
+        # leave a possible orphan rather than delete someone else's server.
+        stale = store.get_active_server(root, project, provider)
+        if not stale:
+            lines.append(f"no registration recorded for {provider}/{previous}, so "
+                         "nothing was removed — check: claude mcp list")
+        elif stale != name:
+            # When the outgoing registration *is* the name we are about to add,
+            # leave it standing and let _register decide whether it is ours to
+            # replace — removing it first would destroy it either way.
             _deactivate(cwd, stale, claude, lines)
 
     if not _register(root, project, cwd, provider, profile, name, config, claude, lines):
@@ -237,10 +268,14 @@ def save(root, cwd, provider, profile, from_server, claude, server=None) -> Resu
 
 def rm(root, project, provider, profile) -> Result:
     if store.get_active(root, project, provider) == profile:
+        # Unregistering the server would not help: the state slot would stay
+        # set and rm would go on refusing. Switching away is the only way out.
+        name = store.get_active_server(root, project, provider) \
+            or _profile_server(root, provider, profile)
         return Result(False, [
-            f"{provider}/{profile} is active in this project",
-            "switch to another profile first, or unregister it with: "
-            f"claude mcp remove {_profile_server(root, provider, profile)} -s local",
+            f"{provider}/{profile} is active in this project — it registered {name}",
+            f"switch to another profile first: switch.py use {provider} <other>, "
+            f"then: switch.py rm {provider} {profile}",
         ])
     if not store.delete_profile(root, provider, profile):
         return Result(False, [f'no profile "{profile}" for provider "{provider}"'])
