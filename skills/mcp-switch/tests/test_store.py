@@ -102,6 +102,23 @@ class TestStore(unittest.TestCase):
         self.assertEqual(store.get_active(self.root, self.project, "linear"), "work")
         self.assertIsNone(store.get_active_server(self.root, self.project, "linear"))
 
+    def test_a_non_dict_project_entry_degrades_to_nothing(self):
+        (self.root / "state.json").write_text(
+            json.dumps({self.project: "linear"}), encoding="utf-8")
+        self.assertIsNone(store.get_active(self.root, self.project, "linear"))
+        self.assertIsNone(store.get_active_server(self.root, self.project, "linear"))
+
+    def test_a_non_dict_project_entry_is_overwritten_by_set_active(self):
+        (self.root / "state.json").write_text(
+            json.dumps({self.project: "linear"}), encoding="utf-8")
+        store.set_active(self.root, self.project, "linear", "work", "linear-work")
+        self.assertEqual(store.get_active(self.root, self.project, "linear"), "work")
+
+    def test_clear_active_survives_a_non_dict_project_entry(self):
+        (self.root / "state.json").write_text(
+            json.dumps({self.project: "linear"}), encoding="utf-8")
+        store.clear_active(self.root, self.project, "linear")  # must not raise
+
     def test_clear_active_removes_the_provider_entry(self):
         store.set_active(self.root, self.project, "linear", "work", "lw")
         store.clear_active(self.root, self.project, "linear")

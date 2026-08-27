@@ -78,9 +78,12 @@ flowchart TD
   B -->|yes| C{"another linear profile\nactive in this project?"}
   C -->|yes| D["claude mcp remove linear-work -s local"]
   C -->|no| E
-  D --> E["claude mcp remove linear-personal -s local\n(tolerate 'not registered')"]
-  E --> E2["claude mcp add-json linear-personal '...' -s local"]
-  E2 --> F["record active profile + server in state.json"]
+  D --> E["claude mcp add-json linear-personal '...' -s local"]
+  E -->|ok| F["record active profile + server in state.json"]
+  E -->|already exists| M{"is that the registration\nstate recorded for\nthis same profile?"}
+  M -->|no| N["error: not ours — left untouched.\nclaude mcp remove linear-personal -s local\nto replace it deliberately"]
+  M -->|yes| O["remove it, then add-json again"]
+  O --> F
   F --> G["claude mcp get linear-personal"]
   G -->|connected| H["✓ switched — run /mcp to reconnect"]
   G -->|needs auth| I["run: claude mcp login linear-personal"]
@@ -108,11 +111,15 @@ leaves a dead server behind.
 | `add <provider> <profile> --json '<json>'` | Same, for stdio servers or anything unusual |
 | `rm <provider> <profile>` | Delete from the store; never touches OAuth credentials |
 
-`use` is the hot path and the only one the skill needs for day-to-day work. It
-is idempotent: `claude mcp add-json` refuses a name that already exists, so the
-target server name is always removed before it is added, and that removal is
-allowed to fail. Re-selecting the active profile re-registers it cleanly, and so
-does `use` straight after `save`, where the server is registered already.
+`use` is the hot path and the only one the skill needs for day-to-day work.
+`claude mcp add-json` refuses a name that already exists, and that refusal is
+the only way to learn something is registered under it. So `use` adds first, and
+on a clash consults `state.json`: if the name is the registration it recorded
+for this same profile, it removes and re-adds — which is what makes re-selecting
+the active profile, and `use` straight after `save`, work. If it is anything
+else the server belongs to the user, may hold headers or env this store never
+captured, and is left untouched; `use` fails and prints the
+`claude mcp remove <name> -s local` they would run to replace it deliberately.
 
 ### The duplicate-host warning
 
@@ -185,3 +192,9 @@ ending in `OK`. Coverage:
 - Two accounts for one provider live in one repository at the same time. Local
   scope is keyed on the main repository root, so the CLI has nowhere to put a
   second one.
+- Capturing a server's headers or env with `save`. `claude mcp get` prints the
+  type, URL, command and args and nothing else, so a captured profile is a
+  lossy copy of a server that used either. `save` says so, and `use` refuses to
+  overwrite a registered server the store did not register itself, so the
+  original definition is never destroyed on the strength of an incomplete copy —
+  the user re-adds what is missing with `-H` or by editing the profile.

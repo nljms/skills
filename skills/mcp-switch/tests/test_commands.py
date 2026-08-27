@@ -148,26 +148,49 @@ class TestSave(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_save_captures_a_configured_server(self):
-        result = commands.save(self.root, CWD, "notion", "acme", "some-server", FakeClaude())
+        result = commands.save(self.root, CWD, PROJECT, "notion", "acme", "some-server", FakeClaude())
         self.assertTrue(result.ok)
         cfg = store.read_profile(self.root, "notion", "acme")
         self.assertEqual(cfg["url"], "https://mcp.notion.com/mcp")
         self.assertEqual(cfg["server"], "some-server")
 
     def test_save_honours_an_explicit_server_name(self):
-        commands.save(self.root, CWD, "notion", "acme", "some-server", FakeClaude(),
+        commands.save(self.root, CWD, PROJECT, "notion", "acme", "some-server", FakeClaude(),
                       server="notion-acme")
         self.assertEqual(store.read_profile(self.root, "notion", "acme")["server"],
                          "notion-acme")
 
+    def test_save_records_the_captured_server_as_active(self):
+        # What it captured IS the live registration, which is how a later `use`
+        # knows the server is ours to re-register rather than a stranger's.
+        commands.save(self.root, CWD, PROJECT, "notion", "acme", "some-server",
+                      FakeClaude())
+        self.assertEqual(store.get_active(self.root, PROJECT, "notion"), "acme")
+        self.assertEqual(store.get_active_server(self.root, PROJECT, "notion"),
+                         "some-server")
+
+    def test_save_does_not_claim_a_name_it_did_not_capture(self):
+        # --server renames the profile's server, so the live one is not it.
+        commands.save(self.root, CWD, PROJECT, "notion", "acme", "some-server",
+                      FakeClaude(), server="notion-acme")
+        self.assertIsNone(store.get_active(self.root, PROJECT, "notion"))
+
+    def test_save_warns_that_headers_and_env_are_not_captured(self):
+        result = commands.save(self.root, CWD, PROJECT, "notion", "acme",
+                               "some-server", FakeClaude())
+        text = "\n".join(result.lines)
+        self.assertIn("headers", text)
+        self.assertIn("env", text)
+        self.assertIn("-H", text)
+
     def test_saving_a_missing_server_fails(self):
-        result = commands.save(self.root, CWD, "notion", "acme", "nope",
+        result = commands.save(self.root, CWD, PROJECT, "notion", "acme", "nope",
                                FakeClaude(get_output=GET_MISSING))
         self.assertFalse(result.ok)
         self.assertIn("nope", "\n".join(result.lines))
 
     def test_saving_a_connector_explains_the_limit(self):
-        result = commands.save(self.root, CWD, "linear", "work", "claude.ai Linear MCP",
+        result = commands.save(self.root, CWD, PROJECT, "linear", "work", "claude.ai Linear MCP",
                                FakeClaude(get_output=GET_CONNECTOR))
         self.assertFalse(result.ok)
         self.assertIn("--url", "\n".join(result.lines))

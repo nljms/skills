@@ -27,12 +27,8 @@ def _profile_server(root, provider, profile):
     return store.server_name(provider, profile, config)
 
 
-def _deactivate(root, project, cwd, provider, previous, claude, lines):
+def _deactivate(cwd, name, claude, lines):
     """Remove the previously active server, tolerating one that is already gone."""
-    # The name recorded at activation time, so a profile deleted from the store
-    # since then is still unregistered under the name it really used.
-    name = store.get_active_server(root, project, provider) \
-        or _profile_server(root, provider, previous)
     try:
         claude.remove(name, cwd)
         lines.append(f"removed {name}")
@@ -41,6 +37,41 @@ def _deactivate(root, project, cwd, provider, previous, claude, lines):
             lines.append(f"{name} was already gone")
         else:
             lines.append(f"could not remove {name}: {exc}")
+
+
+def _register(root, project, cwd, provider, profile, name, config, claude, lines) -> bool:
+    """Register the profile's server, replacing only a registration of our own.
+
+    `claude mcp add-json` refuses a name that already exists, and that refusal
+    is the only way to learn something is there. What is there may be a server
+    the user configured by hand, holding headers or env this store never
+    captured, so the sole registration we will overwrite is the one state says
+    we made for this same profile — which is what keeps re-activation working.
+    """
+    try:
+        claude.add_json(name, store.server_config(config), cwd)
+        return True
+    except cli.ClaudeError as exc:
+        if "already exists" not in str(exc):
+            lines.append(f"could not register {name}: {exc}")
+            return False
+
+    ours = (store.get_active(root, project, provider) == profile
+            and store.get_active_server(root, project, provider) == name)
+    if not ours:
+        lines.append(f"a server named {name} is already registered in this project "
+                     "and this store did not register it — left untouched")
+        lines.append("replace it yourself if that is what you meant: "
+                     f"claude mcp remove {name} -s local")
+        return False
+
+    try:
+        claude.remove(name, cwd)
+        claude.add_json(name, store.server_config(config), cwd)
+    except cli.ClaudeError as exc:
+        lines.append(f"could not re-register {name}: {exc}")
+        return False
+    return True
 
 
 def use(root, cwd, project, provider, profile, claude) -> Result:
@@ -57,19 +88,17 @@ def use(root, cwd, project, provider, profile, claude) -> Result:
 
     previous = store.get_active(root, project, provider)
     if previous and previous != profile:
-        _deactivate(root, project, cwd, provider, previous, claude, lines)
+        # The name recorded at activation time, so a profile deleted from the
+        # store since then is still unregistered under the name it really used.
+        stale = store.get_active_server(root, project, provider) \
+            or _profile_server(root, provider, previous)
+        # When the outgoing registration *is* the name we are about to add,
+        # leave it standing and let _register decide whether it is ours to
+        # replace — removing it first would destroy it either way.
+        if stale != name:
+            _deactivate(cwd, stale, claude, lines)
 
-    # `claude mcp add-json` refuses a name that already exists, so clear it
-    # first. It is usually not registered, and that failure is expected.
-    try:
-        claude.remove(name, cwd)
-    except cli.ClaudeError:
-        pass
-
-    try:
-        claude.add_json(name, store.server_config(config), cwd)
-    except cli.ClaudeError as exc:
-        lines.append(f"could not register {name}: {exc}")
+    if not _register(root, project, cwd, provider, profile, name, config, claude, lines):
         return Result(False, lines)
 
     store.set_active(root, project, provider, profile, name)
@@ -168,7 +197,8 @@ def add(root, provider, profile, url=None, transport="http", headers=(),
     ])
 
 
-def save(root, cwd, provider, profile, from_server, claude, server=None) -> Result:
+def save(root, cwd, project, provider, profile, from_server, claude,
+         server=None) -> Result:
     output = claude.get(from_server, cwd)
     if cli.auth_state(output) == cli.MISSING:
         return Result(False, [f'no MCP server named "{from_server}"',
@@ -178,12 +208,24 @@ def save(root, cwd, provider, profile, from_server, claude, server=None) -> Resu
     except cli.ClaudeError as exc:
         return Result(False, [str(exc)])
 
-    config["server"] = server or from_server
+    name = server or from_server
+    config["server"] = name
     path = store.write_profile(root, provider, profile, config)
-    return Result(True, [
-        f"saved {from_server} as {provider}/{profile}",
-        f"wrote {path}",
-    ])
+    lines = [f"saved {from_server} as {provider}/{profile}", f"wrote {path}"]
+
+    if name == from_server:
+        # The captured server is the live registration under that name, so
+        # record it: that is what lets a later `use` tell its own server apart
+        # from one the user configured by hand.
+        store.set_active(root, project, provider, profile, name)
+        lines.append(f"recorded as the active {provider} profile")
+
+    lines.append(
+        "note: claude mcp get does not print headers or env, so this copy has "
+        "neither — if the server used any, add them with: "
+        f'switch.py add {provider} {profile} --url <url> -H "Name: value", '
+        f"or edit {path}")
+    return Result(True, lines)
 
 
 def rm(root, project, provider, profile) -> Result:

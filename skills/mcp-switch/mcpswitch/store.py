@@ -99,8 +99,14 @@ def _write_state(root, data) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def _project_entry(state, project: str) -> dict:
+    """This project's providers, tolerating a hand-edited state file."""
+    entry = state.get(project)
+    return entry if isinstance(entry, dict) else {}
+
+
 def _entry(root, project: str, provider: str):
-    entry = _read_state(root).get(project, {}).get(provider)
+    entry = _project_entry(_read_state(root), project).get(provider)
     if isinstance(entry, str):          # bare profile name, no server recorded
         return {"profile": entry}
     return entry if isinstance(entry, dict) else None
@@ -121,14 +127,19 @@ def set_active(root, project: str, provider: str, profile: str, server=None) -> 
     entry = {"profile": profile}
     if server:
         entry["server"] = server
-    data.setdefault(project, {})[provider] = entry
+    providers = _project_entry(data, project)
+    providers[provider] = entry
+    data[project] = providers
     _write_state(root, data)
 
 
 def clear_active(root, project: str, provider: str) -> None:
     data = _read_state(root)
-    if data.get(project, {}).pop(provider, None) is None:
+    providers = _project_entry(data, project)
+    if providers.pop(provider, None) is None:
         return
-    if not data[project]:
+    if providers:
+        data[project] = providers
+    else:
         del data[project]
     _write_state(root, data)

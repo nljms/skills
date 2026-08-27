@@ -34,7 +34,7 @@ class TestSmoke(unittest.TestCase):
         repo = os.path.join(self._cwd.name, "repo")
         places = [self._cwd.name] + ([repo] if os.path.isdir(repo) else [])
         for where in places:
-            for name in ("smoke-one", "smoke-two"):
+            for name in ("smoke-one", "smoke-two", "smoke-own"):
                 subprocess.run(["claude", "mcp", "remove", name, "-s", "local"],
                                cwd=where, env=self.env,
                                capture_output=True, text=True)
@@ -81,6 +81,34 @@ class TestSmoke(unittest.TestCase):
         second = self._switch("use", "smoke", "one")
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         self.assertIn("smoke-one", second.stdout)
+
+    def test_use_refuses_to_replace_a_server_it_did_not_register(self):
+        # A hand-configured server holds things `claude mcp get` never prints
+        # (headers, env), so replacing it would destroy them unrecoverably.
+        own = "https://original.invalid/mcp"
+        added = subprocess.run(
+            ["claude", "mcp", "add-json", "smoke-own",
+             '{"type":"http","url":"%s","headers":{"X-Api-Key":"secret"}}' % own,
+             "-s", "local"],
+            cwd=self._cwd.name, env=self.env, capture_output=True, text=True)
+        self.assertEqual(added.returncode, 0, added.stdout + added.stderr)
+
+        saved = self._switch("save", "smoke", "one", "--from", "smoke-own")
+        self.assertEqual(saved.returncode, 0, saved.stdout + saved.stderr)
+        self.assertIn("headers", saved.stdout)      # the lossy-copy warning
+
+        # A different profile pointed at the same server name must be refused.
+        self._switch("add", "smoke", "two", "--url", URL, "--server", "smoke-own")
+        refused = self._switch("use", "smoke", "two")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("already registered", refused.stdout)
+        self.assertIn("claude mcp remove smoke-own -s local", refused.stdout)
+
+        survived = subprocess.run(["claude", "mcp", "get", "smoke-own"],
+                                  cwd=self._cwd.name, env=self.env,
+                                  capture_output=True, text=True, timeout=180)
+        self.assertIn(own, survived.stdout)
+        self.assertNotIn(URL, survived.stdout)
 
     def test_activation_is_shared_across_a_repo(self):
         # Claude Code keys local scope on the main repository root, so a

@@ -47,6 +47,16 @@ class TestSkillMd(unittest.TestCase):
         self.assertNotIn("per working directory", text)
         self.assertNotIn("different accounts at once", text)
 
+    def test_documents_that_save_captures_no_headers_or_env(self):
+        text = self._text()
+        self.assertIn("does not capture headers or env", text)
+
+    def test_the_one_active_profile_limit_cites_local_scope(self):
+        limit = [l for l in self._text().splitlines()
+                 if "One active profile per provider per project" in l][0]
+        self.assertNotIn("for the reason above", limit)
+        self.assertIn("local scope", limit)
+
     def test_marketplace_lists_the_skill(self):
         with open(MARKETPLACE) as f:
             data = json.load(f)

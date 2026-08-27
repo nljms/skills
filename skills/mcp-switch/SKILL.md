@@ -28,6 +28,14 @@ it defaults to `<provider>-<profile>` on `add` and to the captured server's own
 name on `save`. `rm` refuses to delete the profile that is currently active —
 switch to another one first, or unregister it by hand.
 
+**`save` does not capture headers or env.** `claude mcp get` does not print
+them, so a profile captured from a server that used an API-key header or an
+environment variable is an incomplete copy. Put them back before activating it:
+`switch.py add <provider> <profile> --url <url> -H "Name: value"`, or edit the
+profile JSON. `use` will not overwrite a registered server this store did not
+register itself, so a hand-configured server is safe until you remove it
+yourself.
+
 ## Where things live
 
 ```
@@ -67,7 +75,8 @@ Then switching later is one command plus `/mcp`.
 - **claude.ai connectors cannot be switched.** A connector's account is set in
   claude.ai settings, not on disk. If one is live on the same host as the active
   profile, `use` warns that both sets of tools are visible.
-- **One active profile per provider per project**, for the reason above.
+- **One active profile per provider per project**, because local scope is
+  keyed on the main repository root.
 - The skill never touches stored credentials — no `logout`, no keychain access.
 - Everything is written to **local scope** (`-s local`), never user or project scope.
 

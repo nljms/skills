@@ -26,29 +26,34 @@ LIST_WITH_LOCAL_TWIN = (
 )
 LIST_CLEAN = "linear-personal: https://mcp.linear.app/mcp - ✔ Connected"
 
-NOT_REGISTERED = 'No MCP server named "{}" in local scope'
-
 
 class FakeClaude:
-    """Records mutations; replays canned read output."""
+    """Models the real CLI's registry: add-json refuses a name that exists,
+    remove refuses one that does not. Read output is canned."""
 
-    def __init__(self, get_output=CONNECTED, list_output=LIST_CLEAN, remove_error=False):
+    def __init__(self, get_output=CONNECTED, list_output=LIST_CLEAN,
+                 remove_error=None, registered=None):
         self.calls = []
         self.get_output = get_output
         self.list_output = list_output
         self.remove_error = remove_error
+        self.registered = dict(registered or {})
 
     def add_json(self, name, config, cwd):
         self.calls.append(("add", name, config))
-        return "added"
+        if name in self.registered:
+            raise cli.ClaudeError(f"MCP server {name} already exists in local config")
+        self.registered[name] = config
+        return f"Added MCP server {name} to local config"
 
     def remove(self, name, cwd):
         self.calls.append(("remove", name, None))
         if self.remove_error:
-            message = self.remove_error if isinstance(self.remove_error, str) \
-                else NOT_REGISTERED.format(name)
-            raise cli.ClaudeError(message)
-        return "removed"
+            raise cli.ClaudeError(self.remove_error)
+        if name not in self.registered:
+            raise cli.ClaudeError(f'No MCP server named "{name}" in local scope')
+        del self.registered[name]
+        return f"Removed MCP server {name}"
 
     def get(self, name, cwd):
         self.calls.append(("get", name, None))
@@ -75,12 +80,11 @@ class TestUse(unittest.TestCase):
     def _mutations(self, fake):
         return [(kind, name) for kind, name, _ in fake.calls if kind in ("add", "remove")]
 
-    def test_a_fresh_switch_clears_the_target_name_then_adds(self):
+    def test_a_fresh_switch_only_adds(self):
         fake = FakeClaude()
         result = self._use("work", fake)
         self.assertTrue(result.ok)
-        self.assertEqual(self._mutations(fake),
-                         [("remove", "linear-work"), ("add", "linear-work")])
+        self.assertEqual(self._mutations(fake), [("add", "linear-work")])
 
     def test_add_receives_the_profile_without_the_server_key(self):
         store.write_profile(self.root, "linear", "named", dict(LINEAR, server="lw"))
@@ -96,26 +100,58 @@ class TestUse(unittest.TestCase):
         fake.calls.clear()
         self._use("personal", fake)
         self.assertEqual(self._mutations(fake),
-                         [("remove", "linear-work"),
-                          ("remove", "linear-personal"),
-                          ("add", "linear-personal")])
+                         [("remove", "linear-work"), ("add", "linear-personal")])
 
     def test_reselecting_the_active_profile_reregisters_it(self):
         fake = FakeClaude()
         self._use("work", fake)
         fake.calls.clear()
         result = self._use("work", fake)
-        self.assertTrue(result.ok)
+        self.assertTrue(result.ok, "\n".join(result.lines))
         self.assertEqual(self._mutations(fake),
-                         [("remove", "linear-work"), ("add", "linear-work")])
+                         [("add", "linear-work"),
+                          ("remove", "linear-work"),
+                          ("add", "linear-work")])
+        self.assertIn("linear-work", fake.registered)
 
-    def test_an_unregistered_target_is_added_all_the_same(self):
-        fake = FakeClaude(remove_error=True)
+    def test_use_refuses_a_server_this_store_did_not_register(self):
+        foreign = {"type": "http", "url": "https://private.example/mcp",
+                   "headers": {"X-Api-Key": "secret"}}
+        fake = FakeClaude(registered={"linear-work": foreign})
         result = self._use("work", fake)
-        self.assertTrue(result.ok)
-        self.assertEqual(self._mutations(fake),
-                         [("remove", "linear-work"), ("add", "linear-work")])
-        self.assertNotIn("could not remove", "\n".join(result.lines))
+        self.assertFalse(result.ok)
+        text = "\n".join(result.lines)
+        self.assertIn("already registered", text)
+        self.assertIn("claude mcp remove linear-work -s local", text)
+        # left strictly alone, and not adopted as ours
+        self.assertEqual(fake.registered["linear-work"], foreign)
+        self.assertNotIn(("remove", "linear-work"), self._mutations(fake))
+        self.assertIsNone(store.get_active(self.root, PROJECT, "linear"))
+
+    def test_use_refuses_a_name_recorded_against_another_profile(self):
+        # `save` records the captured server under one profile; a second profile
+        # pointed at the same server name must not silently take it over.
+        store.write_profile(self.root, "linear", "captured", dict(LINEAR, server="own"))
+        store.write_profile(self.root, "linear", "other", dict(LINEAR, server="own"))
+        original = {"type": "http", "url": "https://private.example/mcp"}
+        fake = FakeClaude(registered={"own": original})
+        store.set_active(self.root, PROJECT, "linear", "captured", "own")
+
+        result = self._use("other", fake)
+        self.assertFalse(result.ok)
+        self.assertIn("claude mcp remove own -s local", "\n".join(result.lines))
+        self.assertEqual(fake.registered["own"], original)
+        self.assertEqual(store.get_active(self.root, PROJECT, "linear"), "captured")
+
+    def test_a_registration_failure_that_is_not_a_clash_is_reported(self):
+        class Boom(FakeClaude):
+            def add_json(self, name, config, cwd):
+                raise cli.ClaudeError("add exploded")
+
+        result = self._use("work", Boom())
+        self.assertFalse(result.ok)
+        self.assertIn("add exploded", "\n".join(result.lines))
+        self.assertIsNone(store.get_active(self.root, PROJECT, "linear"))
 
     def test_active_profile_and_its_server_are_recorded(self):
         store.write_profile(self.root, "linear", "named", dict(LINEAR, server="lw"))
@@ -132,25 +168,26 @@ class TestUse(unittest.TestCase):
         self.assertIn("ghost", "\n".join(result.lines))
 
     def test_a_failing_remove_does_not_abort_the_switch(self):
-        fake = FakeClaude(remove_error=True)
+        fake = FakeClaude()
         self._use("work", fake)
+        fake.registered.pop("linear-work")      # vanished behind our back
         fake.calls.clear()
         result = self._use("personal", fake)
         self.assertTrue(result.ok)
         self.assertEqual(self._mutations(fake),
-                         [("remove", "linear-work"),
-                          ("remove", "linear-personal"),
-                          ("add", "linear-personal")])
+                         [("remove", "linear-work"), ("add", "linear-personal")])
 
     def test_a_previous_server_that_was_not_registered_is_reported_as_gone(self):
-        fake = FakeClaude(remove_error=True)
+        fake = FakeClaude()
         self._use("work", fake)
+        fake.registered.pop("linear-work")
         result = self._use("personal", fake)
         self.assertIn("linear-work was already gone", "\n".join(result.lines))
 
     def test_a_remove_that_fails_for_another_reason_says_so(self):
-        fake = FakeClaude(remove_error="EACCES: permission denied")
+        fake = FakeClaude()
         self._use("work", fake)
+        fake.remove_error = "EACCES: permission denied"
         result = self._use("personal", fake)
         text = "\n".join(result.lines)
         self.assertIn("could not remove linear-work", text)
@@ -191,16 +228,6 @@ class TestUse(unittest.TestCase):
         result = self._use("work", FakeClaude())
         self.assertEqual(result.lines[-1], commands.RECONNECT_HINT)
 
-    def test_add_failure_is_reported_and_state_untouched(self):
-        class Boom(FakeClaude):
-            def add_json(self, name, config, cwd):
-                raise cli.ClaudeError("add exploded")
-
-        result = self._use("work", Boom())
-        self.assertFalse(result.ok)
-        self.assertIn("add exploded", "\n".join(result.lines))
-        self.assertIsNone(store.get_active(self.root, PROJECT, "linear"))
-
     def test_previous_profile_deleted_from_store_still_gets_removed(self):
         fake = FakeClaude()
         self._use("work", fake)
@@ -208,9 +235,7 @@ class TestUse(unittest.TestCase):
         fake.calls.clear()
         self._use("personal", fake)
         self.assertEqual(self._mutations(fake),
-                         [("remove", "linear-work"),
-                          ("remove", "linear-personal"),
-                          ("add", "linear-personal")])
+                         [("remove", "linear-work"), ("add", "linear-personal")])
 
     def test_a_deleted_profile_with_a_custom_server_name_is_still_removed(self):
         store.write_profile(self.root, "linear", "named", dict(LINEAR, server="lw"))
@@ -224,7 +249,7 @@ class TestUse(unittest.TestCase):
     def test_a_state_entry_without_a_server_name_falls_back_to_the_profile(self):
         (self.root / "state.json").write_text(
             '{"%s": {"linear": "work"}}' % PROJECT, encoding="utf-8")
-        fake = FakeClaude()
+        fake = FakeClaude(registered={"linear-work": LINEAR})
         self._use("personal", fake)
         self.assertEqual(self._mutations(fake)[0], ("remove", "linear-work"))
 
