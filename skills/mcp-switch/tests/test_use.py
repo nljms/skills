@@ -128,20 +128,55 @@ class TestUse(unittest.TestCase):
         self.assertNotIn(("remove", "linear-work"), self._mutations(fake))
         self.assertIsNone(store.get_active(self.root, PROJECT, "linear"))
 
-    def test_use_refuses_a_name_recorded_against_another_profile(self):
-        # `save` records the captured server under one profile; a second profile
-        # pointed at the same server name must not silently take it over.
-        store.write_profile(self.root, "linear", "captured", dict(LINEAR, server="own"))
-        store.write_profile(self.root, "linear", "other", dict(LINEAR, server="own"))
-        original = {"type": "http", "url": "https://private.example/mcp"}
-        fake = FakeClaude(registered={"own": original})
-        store.set_active(self.root, PROJECT, "linear", "captured", "own")
+    def test_use_refuses_a_name_another_profile_registered(self):
+        # Two profiles naming one server: activating the second must not take
+        # the first's registration over behind its back.
+        store.write_profile(self.root, "linear", "one", dict(LINEAR, server="own"))
+        store.write_profile(self.root, "linear", "two", dict(LINEAR, server="own"))
+        fake = FakeClaude()
+        self._use("one", fake)
+        registered = dict(fake.registered)
+        fake.calls.clear()
 
-        result = self._use("other", fake)
+        result = self._use("two", fake)
         self.assertFalse(result.ok)
         self.assertIn("claude mcp remove own -s local", "\n".join(result.lines))
+        self.assertEqual(fake.registered, registered)
+        self.assertEqual(store.get_active(self.root, PROJECT, "linear"), "one")
+
+    def test_saving_a_server_does_not_make_it_ours_to_delete(self):
+        # Every state entry must come from a successful `use`, i.e. from a
+        # registration this store made. If `save` wrote one, deactivation would
+        # happily delete a server the user configured by hand.
+        original = {"type": "http", "url": "https://private.example/mcp"}
+        fake = FakeClaude(registered={"own": original})
+        commands.save(self.root, CWD, "linear", "captured", "own", fake)
+        fake.calls.clear()
+
+        result = self._use("work", fake)          # different profile, own name
+        self.assertTrue(result.ok, "\n".join(result.lines))
+        self.assertNotIn(("remove", "own"), self._mutations(fake))
         self.assertEqual(fake.registered["own"], original)
-        self.assertEqual(store.get_active(self.root, PROJECT, "linear"), "captured")
+
+    def test_save_leaves_a_genuinely_active_profile_active(self):
+        fake = FakeClaude(registered={"own": dict(LINEAR)})
+        self._use("work", fake)
+        commands.save(self.root, CWD, "linear", "captured", "own", fake)
+        self.assertEqual(store.get_active(self.root, PROJECT, "linear"), "work")
+        self.assertEqual(store.get_active_server(self.root, PROJECT, "linear"),
+                         "linear-work")
+
+    def test_use_of_a_saved_profile_is_refused_until_its_server_is_removed(self):
+        original = {"type": "http", "url": "https://private.example/mcp"}
+        fake = FakeClaude(registered={"own": original})
+        commands.save(self.root, CWD, "linear", "captured", "own", fake)
+        fake.calls.clear()
+
+        result = self._use("captured", fake)
+        self.assertFalse(result.ok)
+        self.assertIn("claude mcp remove own -s local", "\n".join(result.lines))
+        self.assertNotIn(("remove", "own"), self._mutations(fake))
+        self.assertEqual(fake.registered["own"], original)
 
     def test_a_registration_failure_that_is_not_a_clash_is_reported(self):
         class Boom(FakeClaude):

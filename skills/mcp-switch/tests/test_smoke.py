@@ -110,6 +110,31 @@ class TestSmoke(unittest.TestCase):
         self.assertIn(own, survived.stdout)
         self.assertNotIn(URL, survived.stdout)
 
+    def test_saving_a_server_does_not_make_it_ours_to_delete(self):
+        # `save` captures a server the user configured; nothing about that makes
+        # it a registration this store may later remove on its own initiative.
+        own = "https://original.invalid/mcp"
+        added = subprocess.run(
+            ["claude", "mcp", "add-json", "smoke-own",
+             '{"type":"http","url":"%s","headers":{"X-Api-Key":"secret"}}' % own,
+             "-s", "local"],
+            cwd=self._cwd.name, env=self.env, capture_output=True, text=True)
+        self.assertEqual(added.returncode, 0, added.stdout + added.stderr)
+
+        saved = self._switch("save", "smoke", "one", "--from", "smoke-own")
+        self.assertEqual(saved.returncode, 0, saved.stdout + saved.stderr)
+
+        # A different profile, under a name of its own: nothing to deactivate.
+        self._switch("add", "smoke", "two", "--url", URL, "--server", "smoke-two")
+        used = self._switch("use", "smoke", "two")
+        self.assertEqual(used.returncode, 0, used.stdout + used.stderr)
+        self.assertNotIn("removed smoke-own", used.stdout)
+
+        survived = subprocess.run(["claude", "mcp", "get", "smoke-own"],
+                                  cwd=self._cwd.name, env=self.env,
+                                  capture_output=True, text=True, timeout=180)
+        self.assertIn(own, survived.stdout)
+
     def test_activation_is_shared_across_a_repo(self):
         # Claude Code keys local scope on the main repository root, so a
         # subdirectory of the repo must see the same active profile.

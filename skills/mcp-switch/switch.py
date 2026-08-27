@@ -64,7 +64,7 @@ def main(argv=None, claude=None) -> int:
                               transport=args.transport, headers=args.header,
                               json_config=args.json_config, server=args.server)
     elif args.command == "save":
-        result = commands.save(root, cwd, project, args.provider, args.profile,
+        result = commands.save(root, cwd, args.provider, args.profile,
                                args.from_server, claude, server=args.server)
     else:
         result = commands.rm(root, project, args.provider, args.profile)

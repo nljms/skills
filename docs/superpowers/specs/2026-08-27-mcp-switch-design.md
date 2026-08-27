@@ -106,7 +106,7 @@ leaves a dead server behind.
 |---|---|
 | `list [provider]` | Providers → profiles, which is active in this project, auth status per profile |
 | `use <provider> <profile>` | The flow above |
-| `save <provider> <profile> --from <server> [--server <name>]` | Capture an already-configured server into the store |
+| `save <provider> <profile> --from <server> [--server <name>]` | Capture an already-configured server into the store; writes the profile only, never activates |
 | `add <provider> <profile> --url <url> [-H k:v] [--transport http\|sse]` | Define a profile from scratch |
 | `add <provider> <profile> --json '<json>'` | Same, for stdio servers or anything unusual |
 | `rm <provider> <profile>` | Delete from the store; never touches OAuth credentials |
@@ -115,11 +115,19 @@ leaves a dead server behind.
 `claude mcp add-json` refuses a name that already exists, and that refusal is
 the only way to learn something is registered under it. So `use` adds first, and
 on a clash consults `state.json`: if the name is the registration it recorded
-for this same profile, it removes and re-adds — which is what makes re-selecting
-the active profile, and `use` straight after `save`, work. If it is anything
-else the server belongs to the user, may hold headers or env this store never
-captured, and is left untouched; `use` fails and prints the
-`claude mcp remove <name> -s local` they would run to replace it deliberately.
+for this same profile, it removes and re-adds, which is what makes re-selecting
+the active profile idempotent. Anything else is left untouched — it may be a
+server the user configured by hand, holding headers or env this store never
+captured — and `use` fails, printing the `claude mcp remove <name> -s local`
+they would run to replace it deliberately.
+
+That check is only as good as what `state.json` contains, so the invariant is
+structural: **only a successful `use` writes state.** Every entry therefore
+names a server the skill registered itself, and neither the ownership check nor
+the deactivation of a previously active profile can reach a server it did not
+create. In particular `save` writes the profile and nothing else. Activating a
+saved profile is a deliberate two-step the user performs — remove the captured
+server, then `use` — because the profile is a lossy copy of it.
 
 ### The duplicate-host warning
 
@@ -194,7 +202,7 @@ ending in `OK`. Coverage:
   second one.
 - Capturing a server's headers or env with `save`. `claude mcp get` prints the
   type, URL, command and args and nothing else, so a captured profile is a
-  lossy copy of a server that used either. `save` says so, and `use` refuses to
-  overwrite a registered server the store did not register itself, so the
-  original definition is never destroyed on the strength of an incomplete copy —
-  the user re-adds what is missing with `-H` or by editing the profile.
+  lossy copy of a server that used either. `save` says so, activates nothing,
+  and prints the removal the user would run to activate the profile once they
+  have completed it. The original definition is never destroyed on the strength
+  of an incomplete copy.

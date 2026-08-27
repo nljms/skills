@@ -32,9 +32,17 @@ switch to another one first, or unregister it by hand.
 them, so a profile captured from a server that used an API-key header or an
 environment variable is an incomplete copy. Put them back before activating it:
 `switch.py add <provider> <profile> --url <url> -H "Name: value"`, or edit the
-profile JSON. `use` will not overwrite a registered server this store did not
-register itself, so a hand-configured server is safe until you remove it
-yourself.
+profile JSON.
+
+`save` only writes the profile — it never activates it, and never touches the
+captured server. Since that server is already registered under the name the
+profile will use, activating the profile means replacing it, and `use` refuses
+to do that on its own. Complete the profile first, then:
+
+```
+claude mcp remove <server> -s local
+switch.py use <provider> <profile>
+```
 
 ## Where things live
 

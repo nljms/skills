@@ -47,6 +47,9 @@ def _register(root, project, cwd, provider, profile, name, config, claude, lines
     the user configured by hand, holding headers or env this store never
     captured, so the sole registration we will overwrite is the one state says
     we made for this same profile — which is what keeps re-activation working.
+
+    Only a successful `use` writes state, so a match here always means we
+    registered that name ourselves.
     """
     try:
         claude.add_json(name, store.server_config(config), cwd)
@@ -60,7 +63,7 @@ def _register(root, project, cwd, provider, profile, name, config, claude, lines
             and store.get_active_server(root, project, provider) == name)
     if not ours:
         lines.append(f"a server named {name} is already registered in this project "
-                     "and this store did not register it — left untouched")
+                     "and is not this profile's registration — left untouched")
         lines.append("replace it yourself if that is what you meant: "
                      f"claude mcp remove {name} -s local")
         return False
@@ -197,8 +200,7 @@ def add(root, provider, profile, url=None, transport="http", headers=(),
     ])
 
 
-def save(root, cwd, project, provider, profile, from_server, claude,
-         server=None) -> Result:
+def save(root, cwd, provider, profile, from_server, claude, server=None) -> Result:
     output = claude.get(from_server, cwd)
     if cli.auth_state(output) == cli.MISSING:
         return Result(False, [f'no MCP server named "{from_server}"',
@@ -211,20 +213,25 @@ def save(root, cwd, project, provider, profile, from_server, claude,
     name = server or from_server
     config["server"] = name
     path = store.write_profile(root, provider, profile, config)
+    # Deliberately no activation: only a successful `use` writes state, so every
+    # entry names a server this store registered, and deactivating one can never
+    # reach a server the user configured by hand.
     lines = [f"saved {from_server} as {provider}/{profile}", f"wrote {path}"]
-
-    if name == from_server:
-        # The captured server is the live registration under that name, so
-        # record it: that is what lets a later `use` tell its own server apart
-        # from one the user configured by hand.
-        store.set_active(root, project, provider, profile, name)
-        lines.append(f"recorded as the active {provider} profile")
 
     lines.append(
         "note: claude mcp get does not print headers or env, so this copy has "
         "neither — if the server used any, add them with: "
         f'switch.py add {provider} {profile} --url <url> -H "Name: value", '
         f"or edit {path}")
+
+    if name == from_server:
+        # The profile registers under the name that is already registered, and
+        # `use` will not replace a server it did not register itself.
+        lines.append(
+            f"{name} is registered already, so activating this profile means "
+            f"replacing it — once the profile is complete: "
+            f"claude mcp remove {name} -s local, then: "
+            f"switch.py use {provider} {profile}")
     return Result(True, lines)
 
 
