@@ -17,6 +17,15 @@
       "skills": [
         "./skills/doc-server"
       ]
+    },
+    {
+      "name": "mcp-switch",
+      "description": "Switch an MCP provider between named account profiles — work and personal Linear workspaces, two Notion accounts — with one command, per project.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/mcp-switch"
+      ]
     }
   ]
 }
